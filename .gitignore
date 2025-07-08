@@ -1,0 +1,32 @@
+# Compiled binaries
+/target/
+
+# Database files
+*.sqlite3
+chroma_db/
+rag/chroma_db/
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environments
+rag/venv/
+venv/
+env/
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
