@@ -6,6 +6,7 @@ use std::process::Command;
 mod planner;
 mod router_llm;
 mod tools;
+mod utils;
 use crate::generate_prompt::format_agent_output_for_llm;
 use planner::generate_plan;
 use prettyprint::PrettyPrinter;
@@ -13,28 +14,21 @@ use prettyprint::PrettyPrinter;
 mod generate_prompt;
 
 async fn run_agent(agent_type: &str, query: &str) -> Option<String> {
-    let result = match agent_type {
-        "crate_agent" => {
-            match tools::crate_search::search_crates(query).await {
-                Ok(json) => Some(serde_json::to_string_pretty(&json).unwrap_or_default()),
-                Err(_) => None,
-            }
-        }
-        "docs_agent" => {
-            match tools::docs::search_docs(query).await {
-                Ok(json) => Some(serde_json::to_string_pretty(&json).unwrap_or_default()),
-                Err(_) => None,
-            }
-        }
-        "github_agent" => {
-            match tools::github::search_github(query).await {
-                Ok(json) => Some(serde_json::to_string_pretty(&json).unwrap_or_default()),
-                Err(_) => None,
-            }
-        }
+    match agent_type {
+        "crate_agent" => match tools::crate_search::search_crates(query).await {
+            Ok(json) => Some(serde_json::to_string_pretty(&json).unwrap_or_default()),
+            Err(_) => None,
+        },
+        "docs_agent" => match tools::docs::search_docs(query).await {
+            Ok(json) => Some(serde_json::to_string_pretty(&json).unwrap_or_default()),
+            Err(_) => None,
+        },
+        "github_agent" => match tools::github::search_github(query).await {
+            Ok(json) => Some(serde_json::to_string_pretty(&json).unwrap_or_default()),
+            Err(_) => None,
+        },
         _ => None,
-    };
-    result
+    }
 }
 
 fn generate_prompt(past: &str, context: &str, query: &str) -> String {
@@ -74,10 +68,10 @@ async fn call_rag(query: &str, collection: &str) -> Option<String> {
 
 async fn call_local_llm(prompt: &str) -> String {
     let prompt_owned = prompt.to_string();
+    let model_name = crate::utils::get_model_name();
     tokio::task::spawn_blocking(move || {
         let mut child = Command::new("ollama")
-            //.args(["run", "openhermes"])
-            .args(["run", "deepseek-coder:1.3b"])
+            .args(["run", &model_name])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .spawn()
@@ -90,7 +84,9 @@ async fn call_local_llm(prompt: &str) -> String {
 
         let output = child.wait_with_output().expect("Failed to read output");
         String::from_utf8_lossy(&output.stdout).to_string()
-    }).await.unwrap_or_default()
+    })
+    .await
+    .unwrap_or_default()
 }
 
 #[tokio::main]
@@ -129,7 +125,7 @@ async fn main() {
         if !plan.is_empty() {
             for (tool, tool_input) in &plan {
                 println!("Running agent: {} with input: {}", tool, tool_input);
-                
+
                 if let Some(response) = run_agent(tool, tool_input).await {
                     // Attempt to parse the response as JSON
                     match serde_json::from_str::<Value>(&response) {
@@ -151,9 +147,15 @@ async fn main() {
         let mut rag_collections = std::collections::HashSet::new();
         for (tool, _) in &plan {
             match tool.as_str() {
-                "crate_agent" => { rag_collections.insert("crates"); },
-                "docs_agent" => { rag_collections.insert("rust-docs"); },
-                "github_agent" => { rag_collections.insert("rust-book"); },
+                "crate_agent" => {
+                    rag_collections.insert("crates");
+                }
+                "docs_agent" => {
+                    rag_collections.insert("rust-docs");
+                }
+                "github_agent" => {
+                    rag_collections.insert("rust-book");
+                }
                 _ => { /* Do nothing for unknown tools */ }
             }
         }

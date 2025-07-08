@@ -23,11 +23,11 @@ Plan:",
 pub async fn generate_plan(question: &str) -> Vec<(String, String)> {
     let prompt = generate_tool_plan_prompt(question);
     let prompt_owned = prompt.clone();
-    
+    let model_name = crate::utils::get_model_name();
+
     let output = tokio::task::spawn_blocking(move || {
         Command::new("ollama")
-            .args(["run", "llama3.2:latest"])
-            //.args(["run", "deepseek-r1:8b"])
+            .args(["run", &model_name])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
@@ -37,7 +37,14 @@ pub async fn generate_plan(question: &str) -> Vec<(String, String)> {
                 }
                 child.wait_with_output()
             })
-    }).await.unwrap_or_else(|_| Err(std::io::Error::new(std::io::ErrorKind::Other, "Spawn failed")));
+    })
+    .await
+    .unwrap_or_else(|_| {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Spawn failed",
+        ))
+    });
 
     if let Ok(result) = output {
         if let Ok(text) = String::from_utf8(result.stdout) {
