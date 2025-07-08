@@ -12,3 +12,5 @@ prettyprint = "0.8.1"
 regex = "1.11.1"
 tokio = { version = "1", features = ["full"] }
 scraper = "0.23"
+chromadb = "2.3.0"
+qdrant-client = "1.12.0"

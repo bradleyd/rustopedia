@@ -5,6 +5,7 @@
 *.sqlite3
 chroma_db/
 rag/chroma_db/
+rag/qdrant_storage/
 
 # Sample documentation files
 sample_docs/

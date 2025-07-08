@@ -2,7 +2,6 @@ use core::str;
 use serde_json::Value;
 use std::io::{self, Write};
 use std::process::Command;
-use urlencoding::encode;
 
 mod planner;
 mod router_llm;
@@ -10,7 +9,6 @@ mod tools;
 use crate::generate_prompt::format_agent_output_for_llm;
 use planner::generate_plan;
 use prettyprint::PrettyPrinter;
-use reqwest::Client;
 
 mod generate_prompt;
 
@@ -62,38 +60,13 @@ Use prior conversation history to maintain coherence when needed.
     )
 }
 async fn call_rag(query: &str, collection: &str) -> Option<String> {
-    let client = Client::new();
-    // Encode the query
-    let encoded_query = encode(query);
-
-    // "http://localhost:8000/query?collection=rust-docs&query=VecDequeu::new()&n_results=10"
-    let url = format!(
-        "http://localhost:8000/query?collection={}&query={}&n_results=10",
-        collection, encoded_query
-    );
-
-    match client.get(&url).send().await {
-        Ok(response) => match response.json::<Value>().await {
-            Ok(json) => {
-                let context = match json.get("docs") {
-                    Some(Value::Array(docs)) => docs
-                        .iter()
-                        .filter_map(|doc| doc.get("content")) // get content field from each doc
-                        .filter_map(|content| content.as_str())
-                        .collect::<Vec<_>>()
-                        .join("\n\n"),
-                    _ => String::from("No docs found"),
-                };
-                println!("Rag response empty? {:?}", context.is_empty());
-                Some(context)
-            }
-            Err(e) => {
-                eprintln!("❌ Failed to parse JSON: {}", e);
-                None
-            }
-        },
+    match tools::qdrant_client::query_qdrant_with_text(collection, query, 10).await {
+        Ok(context) => {
+            println!("Rag response empty? {:?}", context.is_empty());
+            Some(context)
+        }
         Err(e) => {
-            eprintln!("❌ HTTP request failed: {}", e);
+            eprintln!("❌ Qdrant query failed: {}", e);
             None
         }
     }
@@ -103,8 +76,8 @@ async fn call_local_llm(prompt: &str) -> String {
     let prompt_owned = prompt.to_string();
     tokio::task::spawn_blocking(move || {
         let mut child = Command::new("ollama")
-            .args(["run", "openhermes"])
-            //.args(["run", "deepseek-r1:8b"])
+            //.args(["run", "openhermes"])
+            .args(["run", "deepseek-coder:1.3b"])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .spawn()
