@@ -1,0 +1,42 @@
+atomic_or_acqrel in std::intrinsics - Rust
+std
+::
+intrinsics
+Function
+atomic_or_acqrel
+Copy item path
+Source
+pub unsafe fn atomic_or_acqrel<T>(dst:
+*mut T
+, src: T) -> T
+where
+    T:
+Copy
+,
+🔬
+This is a nightly-only experimental API. (
+core_intrinsics
+)
+Expand description
+Bitwise or with the current value, returning the previous value.
+T
+must be an integer or pointer type.
+If
+T
+is a pointer type, the provenance of
+src
+is ignored: both the return value and the new
+value stored at
+*dst
+will have the provenance of the old value stored there.
+The stabilized version of this intrinsic is available on the
+atomic
+types via the
+fetch_or
+method by passing
+Ordering::AcqRel
+as the
+order
+. For example,
+AtomicBool::fetch_or
+.

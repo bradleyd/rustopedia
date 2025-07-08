@@ -1,0 +1,4277 @@
+BitAnd in std::ops - Rust
+std
+::
+ops
+Trait
+BitAnd
+Copy item path
+1.0.0
+·
+Source
+pub trait BitAnd<Rhs = Self> {
+    type
+Output
+;
+
+    // Required method
+    fn
+bitand
+(self, rhs: Rhs) -> Self::
+Output
+;
+}
+Expand description
+The bitwise AND operator
+&
+.
+Note that
+Rhs
+is
+Self
+by default, but this is not mandatory.
+§
+Examples
+An implementation of
+BitAnd
+for a wrapper around
+bool
+.
+use
+std::ops::BitAnd;
+#[derive(Debug, PartialEq)]
+struct
+Scalar(bool);
+impl
+BitAnd
+for
+Scalar {
+type
+Output =
+Self
+;
+// rhs is the "right-hand side" of the expression `a & b`
+fn
+bitand(
+self
+, rhs:
+Self
+) ->
+Self
+::Output {
+Self
+(
+self
+.
+0
+& rhs.
+0
+)
+    }
+}
+assert_eq!
+(Scalar(
+true
+) & Scalar(
+true
+), Scalar(
+true
+));
+assert_eq!
+(Scalar(
+true
+) & Scalar(
+false
+), Scalar(
+false
+));
+assert_eq!
+(Scalar(
+false
+) & Scalar(
+true
+), Scalar(
+false
+));
+assert_eq!
+(Scalar(
+false
+) & Scalar(
+false
+), Scalar(
+false
+));
+An implementation of
+BitAnd
+for a wrapper around
+Vec<bool>
+.
+use
+std::ops::BitAnd;
+#[derive(Debug, PartialEq)]
+struct
+BooleanVector(Vec<bool>);
+impl
+BitAnd
+for
+BooleanVector {
+type
+Output =
+Self
+;
+fn
+bitand(
+self
+,
+Self
+(rhs):
+Self
+) ->
+Self
+::Output {
+let
+Self
+(lhs) =
+self
+;
+assert_eq!
+(lhs.len(), rhs.len());
+Self
+(
+            lhs.iter()
+                .zip(rhs.iter())
+                .map(|(x, y)|
+*
+x &
+*
+y)
+                .collect()
+        )
+    }
+}
+let
+bv1 = BooleanVector(
+vec!
+[
+true
+,
+true
+,
+false
+,
+false
+]);
+let
+bv2 = BooleanVector(
+vec!
+[
+true
+,
+false
+,
+true
+,
+false
+]);
+let
+expected = BooleanVector(
+vec!
+[
+true
+,
+false
+,
+false
+,
+false
+]);
+assert_eq!
+(bv1 & bv2, expected);
+Required Associated Types
+§
+1.0.0
+·
+Source
+type
+Output
+The resulting type after applying the
+&
+operator.
+Required Methods
+§
+1.0.0
+·
+Source
+fn
+bitand
+(self, rhs: Rhs) -> Self::
+Output
+Performs the
+&
+operation.
+§
+Examples
+assert_eq!
+(
+true
+&
+false
+,
+false
+);
+assert_eq!
+(
+true
+&
+true
+,
+true
+);
+assert_eq!
+(
+5u8
+&
+1u8
+,
+1
+);
+assert_eq!
+(
+5u8
+&
+2u8
+,
+0
+);
+Implementors
+§
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+for
+bool
+Source
+§
+type
+Output
+=
+bool
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+for
+i8
+Source
+§
+type
+Output
+=
+i8
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+for
+i16
+Source
+§
+type
+Output
+=
+i16
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+for
+i32
+Source
+§
+type
+Output
+=
+i32
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+for
+i64
+Source
+§
+type
+Output
+=
+i64
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+for
+i128
+Source
+§
+type
+Output
+=
+i128
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+for
+isize
+Source
+§
+type
+Output
+=
+isize
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+for
+u8
+Source
+§
+type
+Output
+=
+u8
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+for
+u16
+Source
+§
+type
+Output
+=
+u16
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+for
+u32
+Source
+§
+type
+Output
+=
+u32
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+for
+u64
+Source
+§
+type
+Output
+=
+u64
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+for
+u128
+Source
+§
+type
+Output
+=
+u128
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+for
+usize
+Source
+§
+type
+Output
+=
+usize
+1.75.0
+·
+Source
+§
+impl
+BitAnd
+for
+Ipv4Addr
+Source
+§
+type
+Output
+=
+Ipv4Addr
+1.75.0
+·
+Source
+§
+impl
+BitAnd
+for
+Ipv6Addr
+Source
+§
+type
+Output
+=
+Ipv6Addr
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+for
+Saturating
+<
+i8
+>
+Source
+§
+type
+Output
+=
+Saturating
+<
+i8
+>
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+for
+Saturating
+<
+i16
+>
+Source
+§
+type
+Output
+=
+Saturating
+<
+i16
+>
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+for
+Saturating
+<
+i32
+>
+Source
+§
+type
+Output
+=
+Saturating
+<
+i32
+>
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+for
+Saturating
+<
+i64
+>
+Source
+§
+type
+Output
+=
+Saturating
+<
+i64
+>
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+for
+Saturating
+<
+i128
+>
+Source
+§
+type
+Output
+=
+Saturating
+<
+i128
+>
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+for
+Saturating
+<
+isize
+>
+Source
+§
+type
+Output
+=
+Saturating
+<
+isize
+>
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+for
+Saturating
+<
+u8
+>
+Source
+§
+type
+Output
+=
+Saturating
+<
+u8
+>
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+for
+Saturating
+<
+u16
+>
+Source
+§
+type
+Output
+=
+Saturating
+<
+u16
+>
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+for
+Saturating
+<
+u32
+>
+Source
+§
+type
+Output
+=
+Saturating
+<
+u32
+>
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+for
+Saturating
+<
+u64
+>
+Source
+§
+type
+Output
+=
+Saturating
+<
+u64
+>
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+for
+Saturating
+<
+u128
+>
+Source
+§
+type
+Output
+=
+Saturating
+<
+u128
+>
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+for
+Saturating
+<
+usize
+>
+Source
+§
+type
+Output
+=
+Saturating
+<
+usize
+>
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+for
+Wrapping
+<
+i8
+>
+Source
+§
+type
+Output
+=
+Wrapping
+<
+i8
+>
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+for
+Wrapping
+<
+i16
+>
+Source
+§
+type
+Output
+=
+Wrapping
+<
+i16
+>
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+for
+Wrapping
+<
+i32
+>
+Source
+§
+type
+Output
+=
+Wrapping
+<
+i32
+>
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+for
+Wrapping
+<
+i64
+>
+Source
+§
+type
+Output
+=
+Wrapping
+<
+i64
+>
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+for
+Wrapping
+<
+i128
+>
+Source
+§
+type
+Output
+=
+Wrapping
+<
+i128
+>
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+for
+Wrapping
+<
+isize
+>
+Source
+§
+type
+Output
+=
+Wrapping
+<
+isize
+>
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+for
+Wrapping
+<
+u8
+>
+Source
+§
+type
+Output
+=
+Wrapping
+<
+u8
+>
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+for
+Wrapping
+<
+u16
+>
+Source
+§
+type
+Output
+=
+Wrapping
+<
+u16
+>
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+for
+Wrapping
+<
+u32
+>
+Source
+§
+type
+Output
+=
+Wrapping
+<
+u32
+>
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+for
+Wrapping
+<
+u64
+>
+Source
+§
+type
+Output
+=
+Wrapping
+<
+u64
+>
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+for
+Wrapping
+<
+u128
+>
+Source
+§
+type
+Output
+=
+Wrapping
+<
+u128
+>
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+for
+Wrapping
+<
+usize
+>
+Source
+§
+type
+Output
+=
+Wrapping
+<
+usize
+>
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+<&
+bool
+> for &
+bool
+Source
+§
+type
+Output
+= <
+bool
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+<&
+bool
+> for
+bool
+Source
+§
+type
+Output
+= <
+bool
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+<&
+i8
+> for &
+i8
+Source
+§
+type
+Output
+= <
+i8
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+<&
+i8
+> for
+i8
+Source
+§
+type
+Output
+= <
+i8
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+<&
+i16
+> for &
+i16
+Source
+§
+type
+Output
+= <
+i16
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+<&
+i16
+> for
+i16
+Source
+§
+type
+Output
+= <
+i16
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+<&
+i32
+> for &
+i32
+Source
+§
+type
+Output
+= <
+i32
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+<&
+i32
+> for
+i32
+Source
+§
+type
+Output
+= <
+i32
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+<&
+i64
+> for &
+i64
+Source
+§
+type
+Output
+= <
+i64
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+<&
+i64
+> for
+i64
+Source
+§
+type
+Output
+= <
+i64
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+<&
+i128
+> for &
+i128
+Source
+§
+type
+Output
+= <
+i128
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+<&
+i128
+> for
+i128
+Source
+§
+type
+Output
+= <
+i128
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+<&
+isize
+> for &
+isize
+Source
+§
+type
+Output
+= <
+isize
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+<&
+isize
+> for
+isize
+Source
+§
+type
+Output
+= <
+isize
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+<&
+u8
+> for &
+u8
+Source
+§
+type
+Output
+= <
+u8
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+<&
+u8
+> for
+u8
+Source
+§
+type
+Output
+= <
+u8
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+<&
+u16
+> for &
+u16
+Source
+§
+type
+Output
+= <
+u16
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+<&
+u16
+> for
+u16
+Source
+§
+type
+Output
+= <
+u16
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+<&
+u32
+> for &
+u32
+Source
+§
+type
+Output
+= <
+u32
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+<&
+u32
+> for
+u32
+Source
+§
+type
+Output
+= <
+u32
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+<&
+u64
+> for &
+u64
+Source
+§
+type
+Output
+= <
+u64
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+<&
+u64
+> for
+u64
+Source
+§
+type
+Output
+= <
+u64
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+<&
+u128
+> for &
+u128
+Source
+§
+type
+Output
+= <
+u128
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+<&
+u128
+> for
+u128
+Source
+§
+type
+Output
+= <
+u128
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+<&
+usize
+> for &
+usize
+Source
+§
+type
+Output
+= <
+usize
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitAnd
+<&
+usize
+> for
+usize
+Source
+§
+type
+Output
+= <
+usize
+as
+BitAnd
+>::
+Output
+1.75.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Ipv4Addr
+> for &
+Ipv4Addr
+Source
+§
+type
+Output
+=
+Ipv4Addr
+1.75.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Ipv4Addr
+> for
+Ipv4Addr
+Source
+§
+type
+Output
+=
+Ipv4Addr
+1.75.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Ipv6Addr
+> for &
+Ipv6Addr
+Source
+§
+type
+Output
+=
+Ipv6Addr
+1.75.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Ipv6Addr
+> for
+Ipv6Addr
+Source
+§
+type
+Output
+=
+Ipv6Addr
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Saturating
+<
+i8
+>> for &
+Saturating
+<
+i8
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i8
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Saturating
+<
+i8
+>> for
+Saturating
+<
+i8
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i8
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Saturating
+<
+i16
+>> for &
+Saturating
+<
+i16
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i16
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Saturating
+<
+i16
+>> for
+Saturating
+<
+i16
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i16
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Saturating
+<
+i32
+>> for &
+Saturating
+<
+i32
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i32
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Saturating
+<
+i32
+>> for
+Saturating
+<
+i32
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i32
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Saturating
+<
+i64
+>> for &
+Saturating
+<
+i64
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i64
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Saturating
+<
+i64
+>> for
+Saturating
+<
+i64
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i64
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Saturating
+<
+i128
+>> for &
+Saturating
+<
+i128
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i128
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Saturating
+<
+i128
+>> for
+Saturating
+<
+i128
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i128
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Saturating
+<
+isize
+>> for &
+Saturating
+<
+isize
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+isize
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Saturating
+<
+isize
+>> for
+Saturating
+<
+isize
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+isize
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Saturating
+<
+u8
+>> for &
+Saturating
+<
+u8
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u8
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Saturating
+<
+u8
+>> for
+Saturating
+<
+u8
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u8
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Saturating
+<
+u16
+>> for &
+Saturating
+<
+u16
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u16
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Saturating
+<
+u16
+>> for
+Saturating
+<
+u16
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u16
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Saturating
+<
+u32
+>> for &
+Saturating
+<
+u32
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u32
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Saturating
+<
+u32
+>> for
+Saturating
+<
+u32
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u32
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Saturating
+<
+u64
+>> for &
+Saturating
+<
+u64
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u64
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Saturating
+<
+u64
+>> for
+Saturating
+<
+u64
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u64
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Saturating
+<
+u128
+>> for &
+Saturating
+<
+u128
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u128
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Saturating
+<
+u128
+>> for
+Saturating
+<
+u128
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u128
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Saturating
+<
+usize
+>> for &
+Saturating
+<
+usize
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+usize
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Saturating
+<
+usize
+>> for
+Saturating
+<
+usize
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+usize
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Wrapping
+<
+i8
+>> for &
+Wrapping
+<
+i8
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i8
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Wrapping
+<
+i8
+>> for
+Wrapping
+<
+i8
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i8
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Wrapping
+<
+i16
+>> for &
+Wrapping
+<
+i16
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i16
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Wrapping
+<
+i16
+>> for
+Wrapping
+<
+i16
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i16
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Wrapping
+<
+i32
+>> for &
+Wrapping
+<
+i32
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i32
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Wrapping
+<
+i32
+>> for
+Wrapping
+<
+i32
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i32
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Wrapping
+<
+i64
+>> for &
+Wrapping
+<
+i64
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i64
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Wrapping
+<
+i64
+>> for
+Wrapping
+<
+i64
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i64
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Wrapping
+<
+i128
+>> for &
+Wrapping
+<
+i128
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i128
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Wrapping
+<
+i128
+>> for
+Wrapping
+<
+i128
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i128
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Wrapping
+<
+isize
+>> for &
+Wrapping
+<
+isize
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+isize
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Wrapping
+<
+isize
+>> for
+Wrapping
+<
+isize
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+isize
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Wrapping
+<
+u8
+>> for &
+Wrapping
+<
+u8
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u8
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Wrapping
+<
+u8
+>> for
+Wrapping
+<
+u8
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u8
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Wrapping
+<
+u16
+>> for &
+Wrapping
+<
+u16
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u16
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Wrapping
+<
+u16
+>> for
+Wrapping
+<
+u16
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u16
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Wrapping
+<
+u32
+>> for &
+Wrapping
+<
+u32
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u32
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Wrapping
+<
+u32
+>> for
+Wrapping
+<
+u32
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u32
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Wrapping
+<
+u64
+>> for &
+Wrapping
+<
+u64
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u64
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Wrapping
+<
+u64
+>> for
+Wrapping
+<
+u64
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u64
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Wrapping
+<
+u128
+>> for &
+Wrapping
+<
+u128
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u128
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Wrapping
+<
+u128
+>> for
+Wrapping
+<
+u128
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u128
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Wrapping
+<
+usize
+>> for &
+Wrapping
+<
+usize
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+usize
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitAnd
+<&
+Wrapping
+<
+usize
+>> for
+Wrapping
+<
+usize
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+usize
+> as
+BitAnd
+>::
+Output
+1.75.0
+·
+Source
+§
+impl
+BitAnd
+<
+Ipv4Addr
+> for &
+Ipv4Addr
+Source
+§
+type
+Output
+=
+Ipv4Addr
+1.75.0
+·
+Source
+§
+impl
+BitAnd
+<
+Ipv6Addr
+> for &
+Ipv6Addr
+Source
+§
+type
+Output
+=
+Ipv6Addr
+1.0.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+bool
+> for &'a
+bool
+Source
+§
+type
+Output
+= <
+bool
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+i8
+> for &'a
+i8
+Source
+§
+type
+Output
+= <
+i8
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+i16
+> for &'a
+i16
+Source
+§
+type
+Output
+= <
+i16
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+i32
+> for &'a
+i32
+Source
+§
+type
+Output
+= <
+i32
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+i64
+> for &'a
+i64
+Source
+§
+type
+Output
+= <
+i64
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+i128
+> for &'a
+i128
+Source
+§
+type
+Output
+= <
+i128
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+isize
+> for &'a
+isize
+Source
+§
+type
+Output
+= <
+isize
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+u8
+> for &'a
+u8
+Source
+§
+type
+Output
+= <
+u8
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+u16
+> for &'a
+u16
+Source
+§
+type
+Output
+= <
+u16
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+u32
+> for &'a
+u32
+Source
+§
+type
+Output
+= <
+u32
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+u64
+> for &'a
+u64
+Source
+§
+type
+Output
+= <
+u64
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+u128
+> for &'a
+u128
+Source
+§
+type
+Output
+= <
+u128
+as
+BitAnd
+>::
+Output
+1.0.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+usize
+> for &'a
+usize
+Source
+§
+type
+Output
+= <
+usize
+as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+Saturating
+<
+i8
+>> for &'a
+Saturating
+<
+i8
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i8
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+Saturating
+<
+i16
+>> for &'a
+Saturating
+<
+i16
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i16
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+Saturating
+<
+i32
+>> for &'a
+Saturating
+<
+i32
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i32
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+Saturating
+<
+i64
+>> for &'a
+Saturating
+<
+i64
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i64
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+Saturating
+<
+i128
+>> for &'a
+Saturating
+<
+i128
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i128
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+Saturating
+<
+isize
+>> for &'a
+Saturating
+<
+isize
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+isize
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+Saturating
+<
+u8
+>> for &'a
+Saturating
+<
+u8
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u8
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+Saturating
+<
+u16
+>> for &'a
+Saturating
+<
+u16
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u16
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+Saturating
+<
+u32
+>> for &'a
+Saturating
+<
+u32
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u32
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+Saturating
+<
+u64
+>> for &'a
+Saturating
+<
+u64
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u64
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+Saturating
+<
+u128
+>> for &'a
+Saturating
+<
+u128
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u128
+> as
+BitAnd
+>::
+Output
+1.74.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+Saturating
+<
+usize
+>> for &'a
+Saturating
+<
+usize
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+usize
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+Wrapping
+<
+i8
+>> for &'a
+Wrapping
+<
+i8
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i8
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+Wrapping
+<
+i16
+>> for &'a
+Wrapping
+<
+i16
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i16
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+Wrapping
+<
+i32
+>> for &'a
+Wrapping
+<
+i32
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i32
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+Wrapping
+<
+i64
+>> for &'a
+Wrapping
+<
+i64
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i64
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+Wrapping
+<
+i128
+>> for &'a
+Wrapping
+<
+i128
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i128
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+Wrapping
+<
+isize
+>> for &'a
+Wrapping
+<
+isize
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+isize
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+Wrapping
+<
+u8
+>> for &'a
+Wrapping
+<
+u8
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u8
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+Wrapping
+<
+u16
+>> for &'a
+Wrapping
+<
+u16
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u16
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+Wrapping
+<
+u32
+>> for &'a
+Wrapping
+<
+u32
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u32
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+Wrapping
+<
+u64
+>> for &'a
+Wrapping
+<
+u64
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u64
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+Wrapping
+<
+u128
+>> for &'a
+Wrapping
+<
+u128
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u128
+> as
+BitAnd
+>::
+Output
+1.14.0
+·
+Source
+§
+impl<'a>
+BitAnd
+<
+Wrapping
+<
+usize
+>> for &'a
+Wrapping
+<
+usize
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+usize
+> as
+BitAnd
+>::
+Output
+Source
+§
+impl<'lhs, 'rhs, T, const N:
+usize
+>
+BitAnd
+<&'rhs
+Simd
+<T, N>> for &'lhs
+Simd
+<T, N>
+where
+    T:
+SimdElement
+,
+Simd
+<T, N>:
+BitAnd
+<Output =
+Simd
+<T, N>>,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Simd
+<T, N>
+1.0.0
+·
+Source
+§
+impl<T, A>
+BitAnd
+<&
+BTreeSet
+<T, A>> for &
+BTreeSet
+<T, A>
+where
+    T:
+Ord
++
+Clone
+,
+    A:
+Allocator
++
+Clone
+,
+Source
+§
+type
+Output
+=
+BTreeSet
+<T, A>
+1.0.0
+·
+Source
+§
+impl<T, S>
+BitAnd
+<&
+HashSet
+<T, S>> for &
+HashSet
+<T, S>
+where
+    T:
+Eq
++
+Hash
++
+Clone
+,
+    S:
+BuildHasher
++
+Default
+,
+Source
+§
+type
+Output
+=
+HashSet
+<T, S>
+Source
+§
+impl<T, const N:
+usize
+>
+BitAnd
+for
+Mask
+<T, N>
+where
+    T:
+MaskElement
+,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Mask
+<T, N>
+Source
+§
+impl<T, const N:
+usize
+>
+BitAnd
+<&
+Simd
+<T, N>> for
+Simd
+<T, N>
+where
+    T:
+SimdElement
+,
+Simd
+<T, N>:
+BitAnd
+<Output =
+Simd
+<T, N>>,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Simd
+<T, N>
+Source
+§
+impl<T, const N:
+usize
+>
+BitAnd
+<
+bool
+> for
+Mask
+<T, N>
+where
+    T:
+MaskElement
+,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Mask
+<T, N>
+Source
+§
+impl<T, const N:
+usize
+>
+BitAnd
+<
+Mask
+<T, N>> for
+bool
+where
+    T:
+MaskElement
+,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Mask
+<T, N>
+Source
+§
+impl<T, const N:
+usize
+>
+BitAnd
+<
+Simd
+<T, N>> for &
+Simd
+<T, N>
+where
+    T:
+SimdElement
+,
+Simd
+<T, N>:
+BitAnd
+<Output =
+Simd
+<T, N>>,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Simd
+<T, N>
+Source
+§
+impl<const N:
+usize
+>
+BitAnd
+for
+Simd
+<
+i8
+, N>
+where
+i8
+:
+SimdElement
+,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Simd
+<
+i8
+, N>
+Source
+§
+impl<const N:
+usize
+>
+BitAnd
+for
+Simd
+<
+i16
+, N>
+where
+i16
+:
+SimdElement
+,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Simd
+<
+i16
+, N>
+Source
+§
+impl<const N:
+usize
+>
+BitAnd
+for
+Simd
+<
+i32
+, N>
+where
+i32
+:
+SimdElement
+,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Simd
+<
+i32
+, N>
+Source
+§
+impl<const N:
+usize
+>
+BitAnd
+for
+Simd
+<
+i64
+, N>
+where
+i64
+:
+SimdElement
+,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Simd
+<
+i64
+, N>
+Source
+§
+impl<const N:
+usize
+>
+BitAnd
+for
+Simd
+<
+isize
+, N>
+where
+isize
+:
+SimdElement
+,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Simd
+<
+isize
+, N>
+Source
+§
+impl<const N:
+usize
+>
+BitAnd
+for
+Simd
+<
+u8
+, N>
+where
+u8
+:
+SimdElement
+,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Simd
+<
+u8
+, N>
+Source
+§
+impl<const N:
+usize
+>
+BitAnd
+for
+Simd
+<
+u16
+, N>
+where
+u16
+:
+SimdElement
+,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Simd
+<
+u16
+, N>
+Source
+§
+impl<const N:
+usize
+>
+BitAnd
+for
+Simd
+<
+u32
+, N>
+where
+u32
+:
+SimdElement
+,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Simd
+<
+u32
+, N>
+Source
+§
+impl<const N:
+usize
+>
+BitAnd
+for
+Simd
+<
+u64
+, N>
+where
+u64
+:
+SimdElement
+,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Simd
+<
+u64
+, N>
+Source
+§
+impl<const N:
+usize
+>
+BitAnd
+for
+Simd
+<
+usize
+, N>
+where
+usize
+:
+SimdElement
+,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Simd
+<
+usize
+, N>

@@ -1,0 +1,1777 @@
+Eq in std::cmp - Rust
+std
+::
+cmp
+Trait
+Eq
+Copy item path
+1.0.0
+·
+Source
+pub trait Eq:
+PartialEq
+{ }
+Expand description
+Trait for comparisons corresponding to
+equivalence relations
+.
+The primary difference to
+PartialEq
+is the additional requirement for reflexivity. A type
+that implements
+PartialEq
+guarantees that for all
+a
+,
+b
+and
+c
+:
+symmetric:
+a == b
+implies
+b == a
+and
+a != b
+implies
+!(a == b)
+transitive:
+a == b
+and
+b == c
+implies
+a == c
+Eq
+, which builds on top of
+PartialEq
+also implies:
+reflexive:
+a == a
+This property cannot be checked by the compiler, and therefore
+Eq
+is a trait without methods.
+Violating this property is a logic error. The behavior resulting from a logic error is not
+specified, but users of the trait must ensure that such logic errors do
+not
+result in
+undefined behavior. This means that
+unsafe
+code
+must not
+rely on the correctness of these
+methods.
+Floating point types such as
+f32
+and
+f64
+implement only
+PartialEq
+but
+not
+Eq
+because
+NaN
+!=
+NaN
+.
+§
+Derivable
+This trait can be used with
+#[derive]
+. When
+derive
+d, because
+Eq
+has no extra methods, it
+is only informing the compiler that this is an equivalence relation rather than a partial
+equivalence relation. Note that the
+derive
+strategy requires all fields are
+Eq
+, which isn’t
+always desired.
+§
+How can I implement
+Eq
+?
+If you cannot use the
+derive
+strategy, specify that your type implements
+Eq
+, which has no
+extra methods:
+enum
+BookFormat {
+    Paperback,
+    Hardback,
+    Ebook,
+}
+struct
+Book {
+    isbn: i32,
+    format: BookFormat,
+}
+impl
+PartialEq
+for
+Book {
+fn
+eq(
+&
+self
+, other:
+&
+Self
+) -> bool {
+self
+.isbn == other.isbn
+    }
+}
+impl
+Eq
+for
+Book {}
+Dyn Compatibility
+§
+This trait is
+not
+dyn compatible
+.
+In older versions of Rust, dyn compatibility was called "object safety", so this trait is not object safe.
+Implementors
+§
+Source
+§
+impl
+Eq
+for
+AsciiChar
+1.65.0
+·
+Source
+§
+impl
+Eq
+for
+BacktraceStatus
+Source
+§
+impl
+Eq
+for
+TryReserveErrorKind
+1.34.0
+·
+Source
+§
+impl
+Eq
+for
+Infallible
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+VarError
+1.64.0
+·
+Source
+§
+impl
+Eq
+for
+FromBytesWithNulError
+1.28.0
+·
+Source
+§
+impl
+Eq
+for std::fmt::
+Alignment
+Source
+§
+impl
+Eq
+for
+DebugAsHex
+Source
+§
+impl
+Eq
+for
+Sign
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+ErrorKind
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+SeekFrom
+1.7.0
+·
+Source
+§
+impl
+Eq
+for
+IpAddr
+Source
+§
+impl
+Eq
+for
+Ipv6MulticastScope
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+Shutdown
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+SocketAddr
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+FpCategory
+1.55.0
+·
+Source
+§
+impl
+Eq
+for
+IntErrorKind
+Source
+§
+impl
+Eq
+for
+BacktraceStyle
+1.86.0
+·
+Source
+§
+impl
+Eq
+for
+GetDisjointMutError
+Source
+§
+impl
+Eq
+for
+SearchStep
+1.0.0
+·
+Source
+§
+impl
+Eq
+for std::sync::atomic::
+Ordering
+1.12.0
+·
+Source
+§
+impl
+Eq
+for
+RecvTimeoutError
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+TryRecvError
+1.0.0
+·
+Source
+§
+impl
+Eq
+for std::cmp::
+Ordering
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+bool
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+char
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+i8
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+i16
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+i32
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+i64
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+i128
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+isize
+Source
+§
+impl
+Eq
+for
+!
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+str
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+u8
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+u16
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+u32
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+u64
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+u128
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+()
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+usize
+Source
+§
+impl
+Eq
+for
+AllocError
+1.28.0
+·
+Source
+§
+impl
+Eq
+for
+Layout
+1.50.0
+·
+Source
+§
+impl
+Eq
+for
+LayoutError
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+TypeId
+Source
+§
+impl
+Eq
+for
+ByteStr
+Source
+§
+impl
+Eq
+for
+ByteString
+1.34.0
+·
+Source
+§
+impl
+Eq
+for
+CharTryFromError
+1.9.0
+·
+Source
+§
+impl
+Eq
+for
+DecodeUtf16Error
+1.20.0
+·
+Source
+§
+impl
+Eq
+for
+ParseCharError
+1.59.0
+·
+Source
+§
+impl
+Eq
+for
+TryFromCharError
+Source
+§
+impl
+Eq
+for
+UnorderedKeyError
+1.57.0
+·
+Source
+§
+impl
+Eq
+for
+TryReserveError
+1.64.0
+·
+Source
+§
+impl
+Eq
+for
+CStr
+1.64.0
+·
+Source
+§
+impl
+Eq
+for
+CString
+1.69.0
+·
+Source
+§
+impl
+Eq
+for
+FromBytesUntilNulError
+1.64.0
+·
+Source
+§
+impl
+Eq
+for
+FromVecWithNulError
+1.64.0
+·
+Source
+§
+impl
+Eq
+for
+IntoStringError
+1.64.0
+·
+Source
+§
+impl
+Eq
+for
+NulError
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+OsStr
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+OsString
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+Error
+Source
+§
+impl
+Eq
+for
+FormattingOptions
+1.1.0
+·
+Source
+§
+impl
+Eq
+for
+FileType
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+Permissions
+1.33.0
+·
+Source
+§
+impl
+Eq
+for
+PhantomPinned
+Source
+§
+impl
+Eq
+for
+Assume
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+AddrParseError
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+Ipv4Addr
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+Ipv6Addr
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+SocketAddrV4
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+SocketAddrV6
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+ParseFloatError
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+ParseIntError
+1.34.0
+·
+Source
+§
+impl
+Eq
+for
+TryFromIntError
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+RangeFull
+Source
+§
+impl
+Eq
+for
+UCred
+Available on
+Unix
+only.
+1.63.0
+·
+Source
+§
+impl
+Eq
+for
+InvalidHandleError
+Available on
+Windows
+only.
+1.63.0
+·
+Source
+§
+impl
+Eq
+for
+NullHandleError
+Available on
+Windows
+only.
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+Components
+<'_>
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+Path
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+PathBuf
+1.7.0
+·
+Source
+§
+impl
+Eq
+for
+StripPrefixError
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+ExitStatus
+Source
+§
+impl
+Eq
+for
+ExitStatusError
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+Output
+Source
+§
+impl
+Eq
+for std::ptr::
+Alignment
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+ParseBoolError
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+Utf8Error
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+FromUtf8Error
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+String
+1.0.0
+·
+Source
+§
+impl
+Eq
+for
+RecvError
+1.5.0
+·
+Source
+§
+impl
+Eq
+for
+WaitTimeoutResult
+1.26.0
+·
+Source
+§
+impl
+Eq
+for
+AccessError
+1.19.0
+·
+Source
+§
+impl
+Eq
+for
+ThreadId
+1.3.0
+·
+Source
+§
+impl
+Eq
+for
+Duration
+1.8.0
+·
+Source
+§
+impl
+Eq
+for
+Instant
+1.8.0
+·
+Source
+§
+impl
+Eq
+for
+SystemTime
+1.66.0
+·
+Source
+§
+impl
+Eq
+for
+TryFromFloatSecsError
+1.0.0
+·
+Source
+§
+impl<'a>
+Eq
+for
+Component
+<'a>
+1.0.0
+·
+Source
+§
+impl<'a>
+Eq
+for
+Prefix
+<'a>
+Source
+§
+impl<'a>
+Eq
+for
+Utf8Pattern
+<'a>
+Source
+§
+impl<'a>
+Eq
+for
+PhantomContravariantLifetime
+<'a>
+Source
+§
+impl<'a>
+Eq
+for
+PhantomCovariantLifetime
+<'a>
+Source
+§
+impl<'a>
+Eq
+for
+PhantomInvariantLifetime
+<'a>
+1.10.0
+·
+Source
+§
+impl<'a>
+Eq
+for
+Location
+<'a>
+1.0.0
+·
+Source
+§
+impl<'a>
+Eq
+for
+PrefixComponent
+<'a>
+1.79.0
+·
+Source
+§
+impl<'a>
+Eq
+for
+Utf8Chunk
+<'a>
+1.0.0
+·
+Source
+§
+impl<A>
+Eq
+for
+&A
+where
+    A:
+Eq
++ ?
+Sized
+,
+1.0.0
+·
+Source
+§
+impl<A>
+Eq
+for
+&mut A
+where
+    A:
+Eq
++ ?
+Sized
+,
+1.0.0
+·
+Source
+§
+impl<B>
+Eq
+for
+Cow
+<'_, B>
+where
+    B:
+Eq
++
+ToOwned
++ ?
+Sized
+,
+1.55.0
+·
+Source
+§
+impl<B, C>
+Eq
+for
+ControlFlow
+<B, C>
+where
+    B:
+Eq
+,
+    C:
+Eq
+,
+Source
+§
+impl<Dyn>
+Eq
+for
+DynMetadata
+<Dyn>
+where
+    Dyn: ?
+Sized
+,
+1.4.0
+·
+Source
+§
+impl<F>
+Eq
+for F
+where
+    F:
+FnPtr
+,
+1.29.0
+·
+Source
+§
+impl<H>
+Eq
+for
+BuildHasherDefault
+<H>
+1.0.0
+·
+Source
+§
+impl<Idx>
+Eq
+for std::ops::
+Range
+<Idx>
+where
+    Idx:
+Eq
+,
+1.0.0
+·
+Source
+§
+impl<Idx>
+Eq
+for std::ops::
+RangeFrom
+<Idx>
+where
+    Idx:
+Eq
+,
+1.26.0
+·
+Source
+§
+impl<Idx>
+Eq
+for std::ops::
+RangeInclusive
+<Idx>
+where
+    Idx:
+Eq
+,
+1.0.0
+·
+Source
+§
+impl<Idx>
+Eq
+for
+RangeTo
+<Idx>
+where
+    Idx:
+Eq
+,
+1.26.0
+·
+Source
+§
+impl<Idx>
+Eq
+for
+RangeToInclusive
+<Idx>
+where
+    Idx:
+Eq
+,
+Source
+§
+impl<Idx>
+Eq
+for std::range::
+Range
+<Idx>
+where
+    Idx:
+Eq
+,
+Source
+§
+impl<Idx>
+Eq
+for std::range::
+RangeFrom
+<Idx>
+where
+    Idx:
+Eq
+,
+Source
+§
+impl<Idx>
+Eq
+for std::range::
+RangeInclusive
+<Idx>
+where
+    Idx:
+Eq
+,
+1.0.0
+·
+Source
+§
+impl<K, V, A>
+Eq
+for
+BTreeMap
+<K, V, A>
+where
+    K:
+Eq
+,
+    V:
+Eq
+,
+    A:
+Allocator
++
+Clone
+,
+1.0.0
+·
+Source
+§
+impl<K, V, S>
+Eq
+for
+HashMap
+<K, V, S>
+where
+    K:
+Eq
++
+Hash
+,
+    V:
+Eq
+,
+    S:
+BuildHasher
+,
+1.41.0
+·
+Source
+§
+impl<Ptr>
+Eq
+for
+Pin
+<Ptr>
+where
+    Ptr:
+Deref
+,
+    <Ptr as
+Deref
+>::
+Target
+:
+Eq
+,
+1.17.0
+·
+Source
+§
+impl<T>
+Eq
+for
+Bound
+<T>
+where
+    T:
+Eq
+,
+1.0.0
+·
+Source
+§
+impl<T>
+Eq
+for
+Option
+<T>
+where
+    T:
+Eq
+,
+1.36.0
+·
+Source
+§
+impl<T>
+Eq
+for
+Poll
+<T>
+where
+    T:
+Eq
+,
+1.0.0
+·
+Source
+§
+impl<T>
+Eq
+for
+*const T
+where
+    T: ?
+Sized
+,
+Pointer equality is an equivalence relation.
+1.0.0
+·
+Source
+§
+impl<T>
+Eq
+for
+*mut T
+where
+    T: ?
+Sized
+,
+Pointer equality is an equivalence relation.
+1.0.0
+·
+Source
+§
+impl<T>
+Eq
+for
+[T]
+where
+    T:
+Eq
+,
+1.0.0
+·
+Source
+§
+impl<T>
+Eq
+for
+(T₁, T₂, …, Tₙ)
+where
+    T:
+Eq
++ ?
+Sized
+,
+This trait is implemented for tuples up to twelve items long.
+1.2.0
+·
+Source
+§
+impl<T>
+Eq
+for
+Cell
+<T>
+where
+    T:
+Eq
++
+Copy
+,
+1.70.0
+·
+Source
+§
+impl<T>
+Eq
+for
+OnceCell
+<T>
+where
+    T:
+Eq
+,
+1.2.0
+·
+Source
+§
+impl<T>
+Eq
+for
+RefCell
+<T>
+where
+    T:
+Eq
++ ?
+Sized
+,
+Source
+§
+impl<T>
+Eq
+for
+PhantomContravariant
+<T>
+where
+    T: ?
+Sized
+,
+Source
+§
+impl<T>
+Eq
+for
+PhantomCovariant
+<T>
+where
+    T: ?
+Sized
+,
+1.0.0
+·
+Source
+§
+impl<T>
+Eq
+for
+PhantomData
+<T>
+where
+    T: ?
+Sized
+,
+Source
+§
+impl<T>
+Eq
+for
+PhantomInvariant
+<T>
+where
+    T: ?
+Sized
+,
+1.21.0
+·
+Source
+§
+impl<T>
+Eq
+for
+Discriminant
+<T>
+1.20.0
+·
+Source
+§
+impl<T>
+Eq
+for
+ManuallyDrop
+<T>
+where
+    T:
+Eq
++ ?
+Sized
+,
+1.28.0
+·
+Source
+§
+impl<T>
+Eq
+for
+NonZero
+<T>
+where
+    T:
+ZeroablePrimitive
++
+Eq
+,
+1.74.0
+·
+Source
+§
+impl<T>
+Eq
+for
+Saturating
+<T>
+where
+    T:
+Eq
+,
+1.0.0
+·
+Source
+§
+impl<T>
+Eq
+for
+Wrapping
+<T>
+where
+    T:
+Eq
+,
+1.25.0
+·
+Source
+§
+impl<T>
+Eq
+for
+NonNull
+<T>
+where
+    T: ?
+Sized
+,
+1.19.0
+·
+Source
+§
+impl<T>
+Eq
+for
+Reverse
+<T>
+where
+    T:
+Eq
+,
+1.0.0
+·
+Source
+§
+impl<T, A>
+Eq
+for
+Box
+<T, A>
+where
+    T:
+Eq
++ ?
+Sized
+,
+    A:
+Allocator
+,
+1.0.0
+·
+Source
+§
+impl<T, A>
+Eq
+for
+BTreeSet
+<T, A>
+where
+    T:
+Eq
+,
+    A:
+Allocator
++
+Clone
+,
+1.0.0
+·
+Source
+§
+impl<T, A>
+Eq
+for
+LinkedList
+<T, A>
+where
+    T:
+Eq
+,
+    A:
+Allocator
+,
+1.0.0
+·
+Source
+§
+impl<T, A>
+Eq
+for
+VecDeque
+<T, A>
+where
+    T:
+Eq
+,
+    A:
+Allocator
+,
+1.0.0
+·
+Source
+§
+impl<T, A>
+Eq
+for
+Rc
+<T, A>
+where
+    T:
+Eq
++ ?
+Sized
+,
+    A:
+Allocator
+,
+Source
+§
+impl<T, A>
+Eq
+for
+UniqueRc
+<T, A>
+where
+    T:
+Eq
++ ?
+Sized
+,
+    A:
+Allocator
+,
+1.0.0
+·
+Source
+§
+impl<T, A>
+Eq
+for
+Arc
+<T, A>
+where
+    T:
+Eq
++ ?
+Sized
+,
+    A:
+Allocator
+,
+1.0.0
+·
+Source
+§
+impl<T, A>
+Eq
+for
+Vec
+<T, A>
+where
+    T:
+Eq
+,
+    A:
+Allocator
+,
+1.0.0
+·
+Source
+§
+impl<T, E>
+Eq
+for
+Result
+<T, E>
+where
+    T:
+Eq
+,
+    E:
+Eq
+,
+1.0.0
+·
+Source
+§
+impl<T, S>
+Eq
+for
+HashSet
+<T, S>
+where
+    T:
+Eq
++
+Hash
+,
+    S:
+BuildHasher
+,
+1.0.0
+·
+Source
+§
+impl<T, const N:
+usize
+>
+Eq
+for
+[T; N]
+where
+    T:
+Eq
+,
+Source
+§
+impl<T, const N:
+usize
+>
+Eq
+for
+Simd
+<T, N>
+where
+LaneCount
+<N>:
+SupportedLaneCount
+,
+    T:
+SimdElement
++
+Eq
+,
+Source
+§
+impl<T:
+Eq
+>
+Eq
+for
+SendTimeoutError
+<T>
+1.0.0
+·
+Source
+§
+impl<T:
+Eq
+>
+Eq
+for
+TrySendError
+<T>
+1.0.0
+·
+Source
+§
+impl<T:
+Eq
+>
+Eq
+for
+Cursor
+<T>
+1.0.0
+·
+Source
+§
+impl<T:
+Eq
+>
+Eq
+for
+SendError
+<T>
+1.70.0
+·
+Source
+§
+impl<T:
+Eq
+>
+Eq
+for
+OnceLock
+<T>
+Source
+§
+impl<Y, R>
+Eq
+for
+CoroutineState
+<Y, R>
+where
+    Y:
+Eq
+,
+    R:
+Eq
+,

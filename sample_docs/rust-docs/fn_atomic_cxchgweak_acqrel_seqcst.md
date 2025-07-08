@@ -1,0 +1,43 @@
+atomic_cxchgweak_acqrel_seqcst in std::intrinsics - Rust
+std
+::
+intrinsics
+Function
+atomic_cxchgweak_acqrel_seqcst
+Copy item path
+Source
+pub unsafe fn atomic_cxchgweak_acqrel_seqcst<T>(
+    dst:
+*mut T
+,
+    old: T,
+    src: T,
+) -> (T,
+bool
+)
+where
+    T:
+Copy
+,
+🔬
+This is a nightly-only experimental API. (
+core_intrinsics
+)
+Expand description
+Stores a value if the current value is the same as the
+old
+value.
+T
+must be an integer or pointer type.
+The stabilized version of this intrinsic is available on the
+atomic
+types via the
+compare_exchange_weak
+method by passing
+Ordering::AcqRel
+and
+Ordering::SeqCst
+as the success and failure parameters.
+For example,
+AtomicBool::compare_exchange_weak
+.

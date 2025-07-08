@@ -1,0 +1,4155 @@
+BitXor in std::ops - Rust
+std
+::
+ops
+Trait
+BitXor
+Copy item path
+1.0.0
+·
+Source
+pub trait BitXor<Rhs = Self> {
+    type
+Output
+;
+
+    // Required method
+    fn
+bitxor
+(self, rhs: Rhs) -> Self::
+Output
+;
+}
+Expand description
+The bitwise XOR operator
+^
+.
+Note that
+Rhs
+is
+Self
+by default, but this is not mandatory.
+§
+Examples
+An implementation of
+BitXor
+that lifts
+^
+to a wrapper around
+bool
+.
+use
+std::ops::BitXor;
+#[derive(Debug, PartialEq)]
+struct
+Scalar(bool);
+impl
+BitXor
+for
+Scalar {
+type
+Output =
+Self
+;
+// rhs is the "right-hand side" of the expression `a ^ b`
+fn
+bitxor(
+self
+, rhs:
+Self
+) ->
+Self
+::Output {
+Self
+(
+self
+.
+0
+^ rhs.
+0
+)
+    }
+}
+assert_eq!
+(Scalar(
+true
+) ^ Scalar(
+true
+), Scalar(
+false
+));
+assert_eq!
+(Scalar(
+true
+) ^ Scalar(
+false
+), Scalar(
+true
+));
+assert_eq!
+(Scalar(
+false
+) ^ Scalar(
+true
+), Scalar(
+true
+));
+assert_eq!
+(Scalar(
+false
+) ^ Scalar(
+false
+), Scalar(
+false
+));
+An implementation of
+BitXor
+trait for a wrapper around
+Vec<bool>
+.
+use
+std::ops::BitXor;
+#[derive(Debug, PartialEq)]
+struct
+BooleanVector(Vec<bool>);
+impl
+BitXor
+for
+BooleanVector {
+type
+Output =
+Self
+;
+fn
+bitxor(
+self
+,
+Self
+(rhs):
+Self
+) ->
+Self
+::Output {
+let
+Self
+(lhs) =
+self
+;
+assert_eq!
+(lhs.len(), rhs.len());
+Self
+(
+            lhs.iter()
+                .zip(rhs.iter())
+                .map(|(x, y)|
+*
+x ^
+*
+y)
+                .collect()
+        )
+    }
+}
+let
+bv1 = BooleanVector(
+vec!
+[
+true
+,
+true
+,
+false
+,
+false
+]);
+let
+bv2 = BooleanVector(
+vec!
+[
+true
+,
+false
+,
+true
+,
+false
+]);
+let
+expected = BooleanVector(
+vec!
+[
+false
+,
+true
+,
+true
+,
+false
+]);
+assert_eq!
+(bv1 ^ bv2, expected);
+Required Associated Types
+§
+1.0.0
+·
+Source
+type
+Output
+The resulting type after applying the
+^
+operator.
+Required Methods
+§
+1.0.0
+·
+Source
+fn
+bitxor
+(self, rhs: Rhs) -> Self::
+Output
+Performs the
+^
+operation.
+§
+Examples
+assert_eq!
+(
+true
+^
+false
+,
+true
+);
+assert_eq!
+(
+true
+^
+true
+,
+false
+);
+assert_eq!
+(
+5u8
+^
+1u8
+,
+4
+);
+assert_eq!
+(
+5u8
+^
+2u8
+,
+7
+);
+Implementors
+§
+1.0.0
+·
+Source
+§
+impl
+BitXor
+for
+bool
+Source
+§
+type
+Output
+=
+bool
+1.0.0
+·
+Source
+§
+impl
+BitXor
+for
+i8
+Source
+§
+type
+Output
+=
+i8
+1.0.0
+·
+Source
+§
+impl
+BitXor
+for
+i16
+Source
+§
+type
+Output
+=
+i16
+1.0.0
+·
+Source
+§
+impl
+BitXor
+for
+i32
+Source
+§
+type
+Output
+=
+i32
+1.0.0
+·
+Source
+§
+impl
+BitXor
+for
+i64
+Source
+§
+type
+Output
+=
+i64
+1.0.0
+·
+Source
+§
+impl
+BitXor
+for
+i128
+Source
+§
+type
+Output
+=
+i128
+1.0.0
+·
+Source
+§
+impl
+BitXor
+for
+isize
+Source
+§
+type
+Output
+=
+isize
+1.0.0
+·
+Source
+§
+impl
+BitXor
+for
+u8
+Source
+§
+type
+Output
+=
+u8
+1.0.0
+·
+Source
+§
+impl
+BitXor
+for
+u16
+Source
+§
+type
+Output
+=
+u16
+1.0.0
+·
+Source
+§
+impl
+BitXor
+for
+u32
+Source
+§
+type
+Output
+=
+u32
+1.0.0
+·
+Source
+§
+impl
+BitXor
+for
+u64
+Source
+§
+type
+Output
+=
+u64
+1.0.0
+·
+Source
+§
+impl
+BitXor
+for
+u128
+Source
+§
+type
+Output
+=
+u128
+1.0.0
+·
+Source
+§
+impl
+BitXor
+for
+usize
+Source
+§
+type
+Output
+=
+usize
+1.74.0
+·
+Source
+§
+impl
+BitXor
+for
+Saturating
+<
+i8
+>
+Source
+§
+type
+Output
+=
+Saturating
+<
+i8
+>
+1.74.0
+·
+Source
+§
+impl
+BitXor
+for
+Saturating
+<
+i16
+>
+Source
+§
+type
+Output
+=
+Saturating
+<
+i16
+>
+1.74.0
+·
+Source
+§
+impl
+BitXor
+for
+Saturating
+<
+i32
+>
+Source
+§
+type
+Output
+=
+Saturating
+<
+i32
+>
+1.74.0
+·
+Source
+§
+impl
+BitXor
+for
+Saturating
+<
+i64
+>
+Source
+§
+type
+Output
+=
+Saturating
+<
+i64
+>
+1.74.0
+·
+Source
+§
+impl
+BitXor
+for
+Saturating
+<
+i128
+>
+Source
+§
+type
+Output
+=
+Saturating
+<
+i128
+>
+1.74.0
+·
+Source
+§
+impl
+BitXor
+for
+Saturating
+<
+isize
+>
+Source
+§
+type
+Output
+=
+Saturating
+<
+isize
+>
+1.74.0
+·
+Source
+§
+impl
+BitXor
+for
+Saturating
+<
+u8
+>
+Source
+§
+type
+Output
+=
+Saturating
+<
+u8
+>
+1.74.0
+·
+Source
+§
+impl
+BitXor
+for
+Saturating
+<
+u16
+>
+Source
+§
+type
+Output
+=
+Saturating
+<
+u16
+>
+1.74.0
+·
+Source
+§
+impl
+BitXor
+for
+Saturating
+<
+u32
+>
+Source
+§
+type
+Output
+=
+Saturating
+<
+u32
+>
+1.74.0
+·
+Source
+§
+impl
+BitXor
+for
+Saturating
+<
+u64
+>
+Source
+§
+type
+Output
+=
+Saturating
+<
+u64
+>
+1.74.0
+·
+Source
+§
+impl
+BitXor
+for
+Saturating
+<
+u128
+>
+Source
+§
+type
+Output
+=
+Saturating
+<
+u128
+>
+1.74.0
+·
+Source
+§
+impl
+BitXor
+for
+Saturating
+<
+usize
+>
+Source
+§
+type
+Output
+=
+Saturating
+<
+usize
+>
+1.0.0
+·
+Source
+§
+impl
+BitXor
+for
+Wrapping
+<
+i8
+>
+Source
+§
+type
+Output
+=
+Wrapping
+<
+i8
+>
+1.0.0
+·
+Source
+§
+impl
+BitXor
+for
+Wrapping
+<
+i16
+>
+Source
+§
+type
+Output
+=
+Wrapping
+<
+i16
+>
+1.0.0
+·
+Source
+§
+impl
+BitXor
+for
+Wrapping
+<
+i32
+>
+Source
+§
+type
+Output
+=
+Wrapping
+<
+i32
+>
+1.0.0
+·
+Source
+§
+impl
+BitXor
+for
+Wrapping
+<
+i64
+>
+Source
+§
+type
+Output
+=
+Wrapping
+<
+i64
+>
+1.0.0
+·
+Source
+§
+impl
+BitXor
+for
+Wrapping
+<
+i128
+>
+Source
+§
+type
+Output
+=
+Wrapping
+<
+i128
+>
+1.0.0
+·
+Source
+§
+impl
+BitXor
+for
+Wrapping
+<
+isize
+>
+Source
+§
+type
+Output
+=
+Wrapping
+<
+isize
+>
+1.0.0
+·
+Source
+§
+impl
+BitXor
+for
+Wrapping
+<
+u8
+>
+Source
+§
+type
+Output
+=
+Wrapping
+<
+u8
+>
+1.0.0
+·
+Source
+§
+impl
+BitXor
+for
+Wrapping
+<
+u16
+>
+Source
+§
+type
+Output
+=
+Wrapping
+<
+u16
+>
+1.0.0
+·
+Source
+§
+impl
+BitXor
+for
+Wrapping
+<
+u32
+>
+Source
+§
+type
+Output
+=
+Wrapping
+<
+u32
+>
+1.0.0
+·
+Source
+§
+impl
+BitXor
+for
+Wrapping
+<
+u64
+>
+Source
+§
+type
+Output
+=
+Wrapping
+<
+u64
+>
+1.0.0
+·
+Source
+§
+impl
+BitXor
+for
+Wrapping
+<
+u128
+>
+Source
+§
+type
+Output
+=
+Wrapping
+<
+u128
+>
+1.0.0
+·
+Source
+§
+impl
+BitXor
+for
+Wrapping
+<
+usize
+>
+Source
+§
+type
+Output
+=
+Wrapping
+<
+usize
+>
+1.0.0
+·
+Source
+§
+impl
+BitXor
+<&
+bool
+> for &
+bool
+Source
+§
+type
+Output
+= <
+bool
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitXor
+<&
+bool
+> for
+bool
+Source
+§
+type
+Output
+= <
+bool
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitXor
+<&
+i8
+> for &
+i8
+Source
+§
+type
+Output
+= <
+i8
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitXor
+<&
+i8
+> for
+i8
+Source
+§
+type
+Output
+= <
+i8
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitXor
+<&
+i16
+> for &
+i16
+Source
+§
+type
+Output
+= <
+i16
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitXor
+<&
+i16
+> for
+i16
+Source
+§
+type
+Output
+= <
+i16
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitXor
+<&
+i32
+> for &
+i32
+Source
+§
+type
+Output
+= <
+i32
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitXor
+<&
+i32
+> for
+i32
+Source
+§
+type
+Output
+= <
+i32
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitXor
+<&
+i64
+> for &
+i64
+Source
+§
+type
+Output
+= <
+i64
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitXor
+<&
+i64
+> for
+i64
+Source
+§
+type
+Output
+= <
+i64
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitXor
+<&
+i128
+> for &
+i128
+Source
+§
+type
+Output
+= <
+i128
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitXor
+<&
+i128
+> for
+i128
+Source
+§
+type
+Output
+= <
+i128
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitXor
+<&
+isize
+> for &
+isize
+Source
+§
+type
+Output
+= <
+isize
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitXor
+<&
+isize
+> for
+isize
+Source
+§
+type
+Output
+= <
+isize
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitXor
+<&
+u8
+> for &
+u8
+Source
+§
+type
+Output
+= <
+u8
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitXor
+<&
+u8
+> for
+u8
+Source
+§
+type
+Output
+= <
+u8
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitXor
+<&
+u16
+> for &
+u16
+Source
+§
+type
+Output
+= <
+u16
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitXor
+<&
+u16
+> for
+u16
+Source
+§
+type
+Output
+= <
+u16
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitXor
+<&
+u32
+> for &
+u32
+Source
+§
+type
+Output
+= <
+u32
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitXor
+<&
+u32
+> for
+u32
+Source
+§
+type
+Output
+= <
+u32
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitXor
+<&
+u64
+> for &
+u64
+Source
+§
+type
+Output
+= <
+u64
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitXor
+<&
+u64
+> for
+u64
+Source
+§
+type
+Output
+= <
+u64
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitXor
+<&
+u128
+> for &
+u128
+Source
+§
+type
+Output
+= <
+u128
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitXor
+<&
+u128
+> for
+u128
+Source
+§
+type
+Output
+= <
+u128
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitXor
+<&
+usize
+> for &
+usize
+Source
+§
+type
+Output
+= <
+usize
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl
+BitXor
+<&
+usize
+> for
+usize
+Source
+§
+type
+Output
+= <
+usize
+as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitXor
+<&
+Saturating
+<
+i8
+>> for &
+Saturating
+<
+i8
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i8
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitXor
+<&
+Saturating
+<
+i8
+>> for
+Saturating
+<
+i8
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i8
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitXor
+<&
+Saturating
+<
+i16
+>> for &
+Saturating
+<
+i16
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i16
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitXor
+<&
+Saturating
+<
+i16
+>> for
+Saturating
+<
+i16
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i16
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitXor
+<&
+Saturating
+<
+i32
+>> for &
+Saturating
+<
+i32
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i32
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitXor
+<&
+Saturating
+<
+i32
+>> for
+Saturating
+<
+i32
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i32
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitXor
+<&
+Saturating
+<
+i64
+>> for &
+Saturating
+<
+i64
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i64
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitXor
+<&
+Saturating
+<
+i64
+>> for
+Saturating
+<
+i64
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i64
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitXor
+<&
+Saturating
+<
+i128
+>> for &
+Saturating
+<
+i128
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i128
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitXor
+<&
+Saturating
+<
+i128
+>> for
+Saturating
+<
+i128
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i128
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitXor
+<&
+Saturating
+<
+isize
+>> for &
+Saturating
+<
+isize
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+isize
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitXor
+<&
+Saturating
+<
+isize
+>> for
+Saturating
+<
+isize
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+isize
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitXor
+<&
+Saturating
+<
+u8
+>> for &
+Saturating
+<
+u8
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u8
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitXor
+<&
+Saturating
+<
+u8
+>> for
+Saturating
+<
+u8
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u8
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitXor
+<&
+Saturating
+<
+u16
+>> for &
+Saturating
+<
+u16
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u16
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitXor
+<&
+Saturating
+<
+u16
+>> for
+Saturating
+<
+u16
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u16
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitXor
+<&
+Saturating
+<
+u32
+>> for &
+Saturating
+<
+u32
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u32
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitXor
+<&
+Saturating
+<
+u32
+>> for
+Saturating
+<
+u32
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u32
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitXor
+<&
+Saturating
+<
+u64
+>> for &
+Saturating
+<
+u64
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u64
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitXor
+<&
+Saturating
+<
+u64
+>> for
+Saturating
+<
+u64
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u64
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitXor
+<&
+Saturating
+<
+u128
+>> for &
+Saturating
+<
+u128
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u128
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitXor
+<&
+Saturating
+<
+u128
+>> for
+Saturating
+<
+u128
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u128
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitXor
+<&
+Saturating
+<
+usize
+>> for &
+Saturating
+<
+usize
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+usize
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl
+BitXor
+<&
+Saturating
+<
+usize
+>> for
+Saturating
+<
+usize
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+usize
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitXor
+<&
+Wrapping
+<
+i8
+>> for &
+Wrapping
+<
+i8
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i8
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitXor
+<&
+Wrapping
+<
+i8
+>> for
+Wrapping
+<
+i8
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i8
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitXor
+<&
+Wrapping
+<
+i16
+>> for &
+Wrapping
+<
+i16
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i16
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitXor
+<&
+Wrapping
+<
+i16
+>> for
+Wrapping
+<
+i16
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i16
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitXor
+<&
+Wrapping
+<
+i32
+>> for &
+Wrapping
+<
+i32
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i32
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitXor
+<&
+Wrapping
+<
+i32
+>> for
+Wrapping
+<
+i32
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i32
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitXor
+<&
+Wrapping
+<
+i64
+>> for &
+Wrapping
+<
+i64
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i64
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitXor
+<&
+Wrapping
+<
+i64
+>> for
+Wrapping
+<
+i64
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i64
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitXor
+<&
+Wrapping
+<
+i128
+>> for &
+Wrapping
+<
+i128
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i128
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitXor
+<&
+Wrapping
+<
+i128
+>> for
+Wrapping
+<
+i128
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i128
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitXor
+<&
+Wrapping
+<
+isize
+>> for &
+Wrapping
+<
+isize
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+isize
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitXor
+<&
+Wrapping
+<
+isize
+>> for
+Wrapping
+<
+isize
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+isize
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitXor
+<&
+Wrapping
+<
+u8
+>> for &
+Wrapping
+<
+u8
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u8
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitXor
+<&
+Wrapping
+<
+u8
+>> for
+Wrapping
+<
+u8
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u8
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitXor
+<&
+Wrapping
+<
+u16
+>> for &
+Wrapping
+<
+u16
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u16
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitXor
+<&
+Wrapping
+<
+u16
+>> for
+Wrapping
+<
+u16
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u16
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitXor
+<&
+Wrapping
+<
+u32
+>> for &
+Wrapping
+<
+u32
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u32
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitXor
+<&
+Wrapping
+<
+u32
+>> for
+Wrapping
+<
+u32
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u32
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitXor
+<&
+Wrapping
+<
+u64
+>> for &
+Wrapping
+<
+u64
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u64
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitXor
+<&
+Wrapping
+<
+u64
+>> for
+Wrapping
+<
+u64
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u64
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitXor
+<&
+Wrapping
+<
+u128
+>> for &
+Wrapping
+<
+u128
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u128
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitXor
+<&
+Wrapping
+<
+u128
+>> for
+Wrapping
+<
+u128
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u128
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitXor
+<&
+Wrapping
+<
+usize
+>> for &
+Wrapping
+<
+usize
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+usize
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl
+BitXor
+<&
+Wrapping
+<
+usize
+>> for
+Wrapping
+<
+usize
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+usize
+> as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+bool
+> for &'a
+bool
+Source
+§
+type
+Output
+= <
+bool
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+i8
+> for &'a
+i8
+Source
+§
+type
+Output
+= <
+i8
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+i16
+> for &'a
+i16
+Source
+§
+type
+Output
+= <
+i16
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+i32
+> for &'a
+i32
+Source
+§
+type
+Output
+= <
+i32
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+i64
+> for &'a
+i64
+Source
+§
+type
+Output
+= <
+i64
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+i128
+> for &'a
+i128
+Source
+§
+type
+Output
+= <
+i128
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+isize
+> for &'a
+isize
+Source
+§
+type
+Output
+= <
+isize
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+u8
+> for &'a
+u8
+Source
+§
+type
+Output
+= <
+u8
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+u16
+> for &'a
+u16
+Source
+§
+type
+Output
+= <
+u16
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+u32
+> for &'a
+u32
+Source
+§
+type
+Output
+= <
+u32
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+u64
+> for &'a
+u64
+Source
+§
+type
+Output
+= <
+u64
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+u128
+> for &'a
+u128
+Source
+§
+type
+Output
+= <
+u128
+as
+BitXor
+>::
+Output
+1.0.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+usize
+> for &'a
+usize
+Source
+§
+type
+Output
+= <
+usize
+as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+Saturating
+<
+i8
+>> for &'a
+Saturating
+<
+i8
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i8
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+Saturating
+<
+i16
+>> for &'a
+Saturating
+<
+i16
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i16
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+Saturating
+<
+i32
+>> for &'a
+Saturating
+<
+i32
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i32
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+Saturating
+<
+i64
+>> for &'a
+Saturating
+<
+i64
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i64
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+Saturating
+<
+i128
+>> for &'a
+Saturating
+<
+i128
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+i128
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+Saturating
+<
+isize
+>> for &'a
+Saturating
+<
+isize
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+isize
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+Saturating
+<
+u8
+>> for &'a
+Saturating
+<
+u8
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u8
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+Saturating
+<
+u16
+>> for &'a
+Saturating
+<
+u16
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u16
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+Saturating
+<
+u32
+>> for &'a
+Saturating
+<
+u32
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u32
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+Saturating
+<
+u64
+>> for &'a
+Saturating
+<
+u64
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u64
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+Saturating
+<
+u128
+>> for &'a
+Saturating
+<
+u128
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+u128
+> as
+BitXor
+>::
+Output
+1.74.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+Saturating
+<
+usize
+>> for &'a
+Saturating
+<
+usize
+>
+Source
+§
+type
+Output
+= <
+Saturating
+<
+usize
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+Wrapping
+<
+i8
+>> for &'a
+Wrapping
+<
+i8
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i8
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+Wrapping
+<
+i16
+>> for &'a
+Wrapping
+<
+i16
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i16
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+Wrapping
+<
+i32
+>> for &'a
+Wrapping
+<
+i32
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i32
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+Wrapping
+<
+i64
+>> for &'a
+Wrapping
+<
+i64
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i64
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+Wrapping
+<
+i128
+>> for &'a
+Wrapping
+<
+i128
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+i128
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+Wrapping
+<
+isize
+>> for &'a
+Wrapping
+<
+isize
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+isize
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+Wrapping
+<
+u8
+>> for &'a
+Wrapping
+<
+u8
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u8
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+Wrapping
+<
+u16
+>> for &'a
+Wrapping
+<
+u16
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u16
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+Wrapping
+<
+u32
+>> for &'a
+Wrapping
+<
+u32
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u32
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+Wrapping
+<
+u64
+>> for &'a
+Wrapping
+<
+u64
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u64
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+Wrapping
+<
+u128
+>> for &'a
+Wrapping
+<
+u128
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+u128
+> as
+BitXor
+>::
+Output
+1.14.0
+·
+Source
+§
+impl<'a>
+BitXor
+<
+Wrapping
+<
+usize
+>> for &'a
+Wrapping
+<
+usize
+>
+Source
+§
+type
+Output
+= <
+Wrapping
+<
+usize
+> as
+BitXor
+>::
+Output
+Source
+§
+impl<'lhs, 'rhs, T, const N:
+usize
+>
+BitXor
+<&'rhs
+Simd
+<T, N>> for &'lhs
+Simd
+<T, N>
+where
+    T:
+SimdElement
+,
+Simd
+<T, N>:
+BitXor
+<Output =
+Simd
+<T, N>>,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Simd
+<T, N>
+1.0.0
+·
+Source
+§
+impl<T, A>
+BitXor
+<&
+BTreeSet
+<T, A>> for &
+BTreeSet
+<T, A>
+where
+    T:
+Ord
++
+Clone
+,
+    A:
+Allocator
++
+Clone
+,
+Source
+§
+type
+Output
+=
+BTreeSet
+<T, A>
+1.0.0
+·
+Source
+§
+impl<T, S>
+BitXor
+<&
+HashSet
+<T, S>> for &
+HashSet
+<T, S>
+where
+    T:
+Eq
++
+Hash
++
+Clone
+,
+    S:
+BuildHasher
++
+Default
+,
+Source
+§
+type
+Output
+=
+HashSet
+<T, S>
+Source
+§
+impl<T, const N:
+usize
+>
+BitXor
+for
+Mask
+<T, N>
+where
+    T:
+MaskElement
+,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Mask
+<T, N>
+Source
+§
+impl<T, const N:
+usize
+>
+BitXor
+<&
+Simd
+<T, N>> for
+Simd
+<T, N>
+where
+    T:
+SimdElement
+,
+Simd
+<T, N>:
+BitXor
+<Output =
+Simd
+<T, N>>,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Simd
+<T, N>
+Source
+§
+impl<T, const N:
+usize
+>
+BitXor
+<
+bool
+> for
+Mask
+<T, N>
+where
+    T:
+MaskElement
+,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Mask
+<T, N>
+Source
+§
+impl<T, const N:
+usize
+>
+BitXor
+<
+Mask
+<T, N>> for
+bool
+where
+    T:
+MaskElement
+,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Mask
+<T, N>
+Source
+§
+impl<T, const N:
+usize
+>
+BitXor
+<
+Simd
+<T, N>> for &
+Simd
+<T, N>
+where
+    T:
+SimdElement
+,
+Simd
+<T, N>:
+BitXor
+<Output =
+Simd
+<T, N>>,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Simd
+<T, N>
+Source
+§
+impl<const N:
+usize
+>
+BitXor
+for
+Simd
+<
+i8
+, N>
+where
+i8
+:
+SimdElement
+,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Simd
+<
+i8
+, N>
+Source
+§
+impl<const N:
+usize
+>
+BitXor
+for
+Simd
+<
+i16
+, N>
+where
+i16
+:
+SimdElement
+,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Simd
+<
+i16
+, N>
+Source
+§
+impl<const N:
+usize
+>
+BitXor
+for
+Simd
+<
+i32
+, N>
+where
+i32
+:
+SimdElement
+,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Simd
+<
+i32
+, N>
+Source
+§
+impl<const N:
+usize
+>
+BitXor
+for
+Simd
+<
+i64
+, N>
+where
+i64
+:
+SimdElement
+,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Simd
+<
+i64
+, N>
+Source
+§
+impl<const N:
+usize
+>
+BitXor
+for
+Simd
+<
+isize
+, N>
+where
+isize
+:
+SimdElement
+,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Simd
+<
+isize
+, N>
+Source
+§
+impl<const N:
+usize
+>
+BitXor
+for
+Simd
+<
+u8
+, N>
+where
+u8
+:
+SimdElement
+,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Simd
+<
+u8
+, N>
+Source
+§
+impl<const N:
+usize
+>
+BitXor
+for
+Simd
+<
+u16
+, N>
+where
+u16
+:
+SimdElement
+,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Simd
+<
+u16
+, N>
+Source
+§
+impl<const N:
+usize
+>
+BitXor
+for
+Simd
+<
+u32
+, N>
+where
+u32
+:
+SimdElement
+,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Simd
+<
+u32
+, N>
+Source
+§
+impl<const N:
+usize
+>
+BitXor
+for
+Simd
+<
+u64
+, N>
+where
+u64
+:
+SimdElement
+,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Simd
+<
+u64
+, N>
+Source
+§
+impl<const N:
+usize
+>
+BitXor
+for
+Simd
+<
+usize
+, N>
+where
+usize
+:
+SimdElement
+,
+LaneCount
+<N>:
+SupportedLaneCount
+,
+Source
+§
+type
+Output
+=
+Simd
+<
+usize
+, N>
