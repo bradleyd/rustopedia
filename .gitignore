@@ -6,6 +6,9 @@
 chroma_db/
 rag/chroma_db/
 
+# Sample documentation files
+sample_docs/
+
 # IDE files
 .vscode/
 .idea/
