@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::thread;
 
 use anyhow::{Context, Result};
 use regex::Regex;
@@ -8,7 +9,13 @@ use regex::Regex;
 use crate::config::AppConfig;
 
 pub async fn summarize_project(config: &AppConfig) -> Result<String> {
-    let project_root = Path::new(&config.project_root);
+    let project_root = PathBuf::from(&config.project_root);
+    tokio::task::spawn_blocking(move || summarize_project_sync(&project_root))
+        .await
+        .context("failed to join project overview task")?
+}
+
+fn summarize_project_sync(project_root: &Path) -> Result<String> {
     let seed_files = discover_seed_files(project_root);
     let module_files = discover_module_files(project_root, &seed_files)?;
 
@@ -142,27 +149,43 @@ fn summarize_source_layout(project_root: &Path) -> Result<String> {
 }
 
 fn summarize_file_roles(project_root: &Path, files: &BTreeSet<PathBuf>) -> Result<String> {
-    let mut summaries = Vec::new();
+    let file_list = files.iter().cloned().collect::<Vec<_>>();
+    let summaries = thread::scope(|scope| {
+        let mut handles = Vec::new();
 
-    for path in files {
-        let relative = path
-            .strip_prefix(project_root)
-            .unwrap_or(path)
-            .to_string_lossy()
-            .to_string();
+        for path in file_list {
+            let project_root = project_root.to_path_buf();
+            handles.push(scope.spawn(move || summarize_file_role(&project_root, &path)));
+        }
 
-        let summary = if relative == "Cargo.toml" {
-            "crate manifest and dependency configuration".to_string()
-        } else if relative == "README.md" {
-            "project overview and setup notes".to_string()
-        } else {
-            summarize_rust_file(path).unwrap_or_else(|_| infer_role_from_path(&relative))
-        };
+        let mut output = Vec::new();
+        for handle in handles {
+            output.push(handle.join().expect("project overview worker panicked"));
+        }
+        output
+    });
 
-        summaries.push(format!("- {relative}: {summary}"));
-    }
-
+    let mut summaries = summaries.into_iter().collect::<Result<Vec<_>>>()?;
+    summaries.sort();
     Ok(summaries.join("\n"))
+}
+
+fn summarize_file_role(project_root: &Path, path: &Path) -> Result<String> {
+    let relative = path
+        .strip_prefix(project_root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .to_string();
+
+    let summary = if relative == "Cargo.toml" {
+        "crate manifest and dependency configuration".to_string()
+    } else if relative == "README.md" {
+        "project overview and setup notes".to_string()
+    } else {
+        summarize_rust_file(path).unwrap_or_else(|_| infer_role_from_path(&relative))
+    };
+
+    Ok(format!("- {relative}: {summary}"))
 }
 
 fn summarize_rust_file(path: &Path) -> Result<String> {
@@ -171,10 +194,6 @@ fn summarize_rust_file(path: &Path) -> Result<String> {
 
     if let Some(doc) = first_doc_comment(&content) {
         return Ok(doc);
-    }
-
-    if let Some(signature) = first_item_signature(&content) {
-        return Ok(signature);
     }
 
     Ok(infer_role_from_path(&path.to_string_lossy()))
@@ -195,23 +214,6 @@ fn first_doc_comment(content: &str) -> Option<String> {
     } else {
         Some(docs.join(" "))
     }
-}
-
-fn first_item_signature(content: &str) -> Option<String> {
-    content
-        .lines()
-        .map(str::trim)
-        .find(|line| {
-            line.starts_with("pub struct ")
-                || line.starts_with("struct ")
-                || line.starts_with("pub enum ")
-                || line.starts_with("enum ")
-                || line.starts_with("pub fn ")
-                || line.starts_with("fn ")
-                || line.starts_with("pub async fn ")
-                || line.starts_with("async fn ")
-        })
-        .map(|line| format!("contains {}", line.trim_end_matches('{').trim()))
 }
 
 fn infer_role_from_path(path: &str) -> String {

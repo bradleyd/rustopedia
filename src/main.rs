@@ -43,7 +43,7 @@ async fn main() {
                 let _ = editor.add_history_entry(line.as_str());
                 line
             }
-            Err(ReadlineError::Interrupted) => continue,
+            Err(ReadlineError::Interrupted) => break,
             Err(ReadlineError::Eof) => break,
             Err(e) => {
                 eprintln!("❌ Failed to read input: {e}");

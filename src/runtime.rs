@@ -1,8 +1,9 @@
 use anyhow::{Context, Result};
 use serde_json::Value;
+use std::time::Instant;
 
 use crate::config::AppConfig;
-use crate::generate_prompt::{build_prompt, format_agent_output_for_llm};
+use crate::generate_prompt::{build_prompt, format_agent_output_for_llm, review_intent};
 use crate::llm::LlmClient;
 use crate::planner::{PlanStep, generate_plan};
 use crate::session::{Command, ParsedInput, SessionMode, SessionState, parse_input};
@@ -15,6 +16,7 @@ pub struct Runtime {
 struct TurnArtifacts {
     plan: Vec<PlanStep>,
     context_chunks: Vec<String>,
+    review_intent: Option<String>,
 }
 
 impl Runtime {
@@ -27,16 +29,32 @@ impl Runtime {
         "Rustopedia (commands: /mode ask|review|edit, /status, /help, exit)".to_string()
     }
 
-    pub async fn handle_input(&self, input: &str, session: &mut SessionState) -> Result<HandleResult> {
+    pub async fn handle_input(
+        &self,
+        input: &str,
+        session: &mut SessionState,
+    ) -> Result<HandleResult> {
         match parse_input(input) {
             ParsedInput::Exit => Ok(HandleResult::Exit),
-            ParsedInput::Command(command) => Ok(HandleResult::Message(self.handle_command(command, session))),
+            ParsedInput::Command(command) => {
+                Ok(HandleResult::Message(self.handle_command(command, session)))
+            }
             ParsedInput::Query(query) if query.is_empty() => Ok(HandleResult::Noop),
             ParsedInput::Query(query) => {
                 let mode = session.mode();
-                let response = self.execute_turn(query, mode, session).await?;
-                session.push_turn(query.to_string(), response.trim().to_string());
-                Ok(HandleResult::Message(response))
+                tokio::select! {
+                    result = self.execute_turn(query, mode, session) => {
+                        let response = result?;
+                        session.push_turn(query.to_string(), response.trim().to_string());
+                        Ok(HandleResult::Message(response))
+                    }
+                    signal = tokio::signal::ctrl_c() => {
+                        match signal {
+                            Ok(()) => Ok(HandleResult::Message("Interrupted current request.".to_string())),
+                            Err(e) => Err(e).context("failed to listen for Ctrl-C"),
+                        }
+                    }
+                }
             }
         }
     }
@@ -70,36 +88,81 @@ impl Runtime {
         mode: SessionMode,
         session: &SessionState,
     ) -> Result<String> {
+        let turn_started = Instant::now();
         let artifacts = self.gather_context(query, mode).await;
+        let synth_started = Instant::now();
         let prompt = self.synthesize_prompt(query, mode, session, &artifacts);
+        let synth_elapsed = synth_started.elapsed();
         self.log_prompt_debug(query, mode, &artifacts, &prompt);
-        self.generate_response(&prompt).await
+        self.log_stage_timing("synthesize", synth_elapsed);
+        let generation_started = Instant::now();
+        let response = self.generate_response(&prompt).await;
+        self.log_stage_timing("generate", generation_started.elapsed());
+        self.log_stage_timing("turn_total", turn_started.elapsed());
+        response
     }
 
     async fn gather_context(&self, query: &str, mode: SessionMode) -> TurnArtifacts {
-        let mut context_chunks = self.gather_local_workspace_context(mode).await;
-        let plan = self.route_tools(query, mode).await;
-        context_chunks.extend(self.execute_tools(&plan).await);
-        context_chunks.extend(self.retrieve_memory(query, &plan).await);
+        let review_intent = match mode {
+            SessionMode::Review => Some(review_intent(query).to_string()),
+            _ => None,
+        };
 
-        TurnArtifacts { plan, context_chunks }
+        let analyze_started = Instant::now();
+        let mut context_chunks = self
+            .gather_local_workspace_context(mode, review_intent.as_deref())
+            .await;
+        self.log_stage_timing("analyze", analyze_started.elapsed());
+
+        let route_started = Instant::now();
+        let plan = self.route_tools(query, mode).await;
+        self.log_stage_timing("route", route_started.elapsed());
+
+        let execute_started = Instant::now();
+        context_chunks.extend(self.execute_tools(&plan).await);
+        self.log_stage_timing("execute", execute_started.elapsed());
+
+        let retrieve_started = Instant::now();
+        context_chunks.extend(self.retrieve_memory(query, &plan).await);
+        self.log_stage_timing("retrieve", retrieve_started.elapsed());
+
+        TurnArtifacts {
+            plan,
+            context_chunks,
+            review_intent,
+        }
     }
 
-    async fn gather_local_workspace_context(&self, mode: SessionMode) -> Vec<String> {
+    async fn gather_local_workspace_context(
+        &self,
+        mode: SessionMode,
+        review_intent: Option<&str>,
+    ) -> Vec<String> {
         match mode {
             SessionMode::Ask => Vec::new(),
             SessionMode::Review | SessionMode::Edit => {
                 println!("Stage: analyze ({})", mode.as_str());
                 let mut context_chunks = Vec::new();
 
+                let project_overview_started = Instant::now();
                 match crate::tools::project_overview::summarize_project(&self.config).await {
                     Ok(summary) => context_chunks.push(summary),
                     Err(e) => eprintln!("⚠️ project overview failed: {e}"),
                 }
+                self.log_stage_timing("project_overview", project_overview_started.elapsed());
 
-                match crate::tools::rust_analyzer::workspace_summary(&self.config).await {
-                    Ok(summary) => context_chunks.push(summary),
-                    Err(e) => eprintln!("⚠️ rust-analyzer analysis failed: {e}"),
+                if should_run_rust_analyzer(mode, review_intent) {
+                    let rust_analyzer_started = Instant::now();
+                    match crate::tools::rust_analyzer::workspace_summary(&self.config).await {
+                        Ok(summary) => context_chunks.push(summary),
+                        Err(e) => eprintln!("⚠️ rust-analyzer analysis failed: {e}"),
+                    }
+                    self.log_stage_timing("rust_analyzer", rust_analyzer_started.elapsed());
+                } else if self.config.debug {
+                    eprintln!(
+                        "[debug] stage=rust_analyzer skipped=true intent={}",
+                        review_intent.unwrap_or("n/a")
+                    );
                 }
 
                 context_chunks
@@ -110,7 +173,9 @@ impl Runtime {
     async fn route_tools(&self, query: &str, mode: SessionMode) -> Vec<PlanStep> {
         if matches!(mode, SessionMode::Review) {
             println!("Stage: route ({})", mode.as_str());
-            println!("Review mode uses local project analysis first; skipping planner/tool routing.");
+            println!(
+                "Review mode uses local project analysis first; skipping planner/tool routing."
+            );
             return Vec::new();
         }
 
@@ -138,7 +203,9 @@ impl Runtime {
                     Ok(json_value) => {
                         context_chunks.push(format_agent_output_for_llm(&step.tool, &json_value))
                     }
-                    Err(_) => context_chunks.push(format!("From {}: {}", step.tool, response.trim())),
+                    Err(_) => {
+                        context_chunks.push(format!("From {}: {}", step.tool, response.trim()))
+                    }
                 },
                 Ok(None) => eprintln!("⚠️ Unknown agent in plan: {}", step.tool),
                 Err(e) => eprintln!("⚠️ Agent failed ({}): {e}", step.tool),
@@ -221,16 +288,31 @@ impl Runtime {
             .iter()
             .map(|chunk| chunk.chars().count())
             .sum::<usize>();
+        let query_tokens = estimate_tokens(query);
+        let context_tokens = estimate_tokens_from_chars(context_chars);
+        let prompt_tokens = estimate_tokens(prompt);
 
         eprintln!(
-            "[debug] mode={} query_chars={} plan_steps={} context_chunks={} context_chars={} prompt_chars={}",
+            "[debug] mode={} intent={} query_chars={} query_tokens~={} plan_steps={} context_chunks={} context_chars={} context_tokens~={} prompt_chars={} prompt_tokens~={}",
             mode.as_str(),
+            artifacts.review_intent.as_deref().unwrap_or("n/a"),
             query.chars().count(),
+            query_tokens,
             artifacts.plan.len(),
             artifacts.context_chunks.len(),
             context_chars,
-            prompt.chars().count()
+            context_tokens,
+            prompt.chars().count(),
+            prompt_tokens
         );
+    }
+
+    fn log_stage_timing(&self, stage: &str, elapsed: std::time::Duration) {
+        if !self.config.debug {
+            return;
+        }
+
+        eprintln!("[debug] stage={} elapsed_ms={}", stage, elapsed.as_millis());
     }
 
     async fn generate_response(&self, prompt: &str) -> Result<String> {
@@ -238,6 +320,25 @@ impl Runtime {
             .generate(&self.config.model_name, prompt)
             .await
             .context("failed to generate final response")
+    }
+}
+
+fn estimate_tokens(text: &str) -> usize {
+    estimate_tokens_from_chars(text.chars().count())
+}
+
+fn estimate_tokens_from_chars(chars: usize) -> usize {
+    ((chars as f64) / 4.0).ceil() as usize
+}
+
+fn should_run_rust_analyzer(mode: SessionMode, review_intent: Option<&str>) -> bool {
+    match mode {
+        SessionMode::Ask => false,
+        SessionMode::Edit => true,
+        SessionMode::Review => matches!(
+            review_intent,
+            Some("evaluative_review" | "code_path_explanation")
+        ),
     }
 }
 
