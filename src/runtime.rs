@@ -72,18 +72,48 @@ impl Runtime {
     ) -> Result<String> {
         let artifacts = self.gather_context(query, mode).await;
         let prompt = self.synthesize_prompt(query, mode, session, &artifacts);
+        self.log_prompt_debug(query, mode, &artifacts, &prompt);
         self.generate_response(&prompt).await
     }
 
     async fn gather_context(&self, query: &str, mode: SessionMode) -> TurnArtifacts {
+        let mut context_chunks = self.gather_local_workspace_context(mode).await;
         let plan = self.route_tools(query, mode).await;
-        let mut context_chunks = self.execute_tools(&plan).await;
+        context_chunks.extend(self.execute_tools(&plan).await);
         context_chunks.extend(self.retrieve_memory(query, &plan).await);
 
         TurnArtifacts { plan, context_chunks }
     }
 
+    async fn gather_local_workspace_context(&self, mode: SessionMode) -> Vec<String> {
+        match mode {
+            SessionMode::Ask => Vec::new(),
+            SessionMode::Review | SessionMode::Edit => {
+                println!("Stage: analyze ({})", mode.as_str());
+                let mut context_chunks = Vec::new();
+
+                match crate::tools::project_overview::summarize_project(&self.config).await {
+                    Ok(summary) => context_chunks.push(summary),
+                    Err(e) => eprintln!("⚠️ project overview failed: {e}"),
+                }
+
+                match crate::tools::rust_analyzer::workspace_summary(&self.config).await {
+                    Ok(summary) => context_chunks.push(summary),
+                    Err(e) => eprintln!("⚠️ rust-analyzer analysis failed: {e}"),
+                }
+
+                context_chunks
+            }
+        }
+    }
+
     async fn route_tools(&self, query: &str, mode: SessionMode) -> Vec<PlanStep> {
+        if matches!(mode, SessionMode::Review) {
+            println!("Stage: route ({})", mode.as_str());
+            println!("Review mode uses local project analysis first; skipping planner/tool routing.");
+            return Vec::new();
+        }
+
         println!("Stage: route ({})", mode.as_str());
         match generate_plan(query, &self.config.planner_model_name, &self.llm_client).await {
             Ok(plan) => {
@@ -119,6 +149,12 @@ impl Runtime {
     }
 
     async fn retrieve_memory(&self, query: &str, plan: &[PlanStep]) -> Vec<String> {
+        if plan.is_empty() {
+            println!("Stage: retrieve");
+            println!("No RAG collections selected.");
+            return Vec::new();
+        }
+
         println!("Stage: retrieve");
         let mut context_chunks = Vec::new();
         let mut rag_collections = std::collections::HashSet::new();
@@ -137,11 +173,6 @@ impl Runtime {
                 _ => {}
             }
         }
-
-        if rag_collections.is_empty() {
-            rag_collections.insert("rust-docs");
-        }
-
         for collection in rag_collections {
             match call_rag(query, collection, self.config.rag_top_k).await {
                 Ok(rag) if !rag.trim().is_empty() => {
@@ -172,6 +203,34 @@ impl Runtime {
 
         let full_context = artifacts.context_chunks.join("\n\n");
         build_prompt(mode, &past, &full_context, query, &artifacts.plan)
+    }
+
+    fn log_prompt_debug(
+        &self,
+        query: &str,
+        mode: SessionMode,
+        artifacts: &TurnArtifacts,
+        prompt: &str,
+    ) {
+        if !self.config.debug {
+            return;
+        }
+
+        let context_chars = artifacts
+            .context_chunks
+            .iter()
+            .map(|chunk| chunk.chars().count())
+            .sum::<usize>();
+
+        eprintln!(
+            "[debug] mode={} query_chars={} plan_steps={} context_chunks={} context_chars={} prompt_chars={}",
+            mode.as_str(),
+            query.chars().count(),
+            artifacts.plan.len(),
+            artifacts.context_chunks.len(),
+            context_chars,
+            prompt.chars().count()
+        );
     }
 
     async fn generate_response(&self, prompt: &str) -> Result<String> {

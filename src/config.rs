@@ -18,6 +18,13 @@ impl LlmProvider {
             _ => Self::Ollama,
         }
     }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ollama => "ollama",
+            Self::OpenRouter => "openrouter",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -33,15 +40,19 @@ pub struct AppConfig {
     pub http_connect_timeout_secs: u64,
     pub http_request_timeout_secs: u64,
     pub embed_query_timeout_secs: u64,
+    pub rust_analyzer_bin: String,
+    pub rust_analyzer_timeout_secs: u64,
     pub python_bin: String,
     pub embed_query_script: String,
     pub project_root: String,
+    pub debug: bool,
 }
 
 impl AppConfig {
     pub fn from_env() -> Self {
         let model_name =
-            env::var("RUSTOPEDIA_MODEL_NAME").unwrap_or_else(|_| "openhermes".to_string());
+            env::var("RUSTOPEDIA_MODEL_NAME")
+                .unwrap_or_else(|_| "deepseek-coder-v2:latest".to_string());
         Self {
             planner_model_name: env::var("RUSTOPEDIA_PLANNER_MODEL_NAME")
                 .unwrap_or_else(|_| model_name.clone()),
@@ -70,10 +81,17 @@ impl AppConfig {
                 .ok()
                 .and_then(|v| v.parse::<u64>().ok())
                 .unwrap_or(30),
+            rust_analyzer_bin: env::var("RUSTOPEDIA_RUST_ANALYZER_BIN")
+                .unwrap_or_else(|_| "rust-analyzer".to_string()),
+            rust_analyzer_timeout_secs: env::var("RUSTOPEDIA_RUST_ANALYZER_TIMEOUT_SECS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(20),
             python_bin: env::var("RUSTOPEDIA_PYTHON_BIN").unwrap_or_else(|_| "python3".to_string()),
             embed_query_script: env::var("RUSTOPEDIA_EMBED_QUERY_SCRIPT")
                 .unwrap_or_else(|_| "rag/embed_query.py".to_string()),
             project_root: env::var("RUSTOPEDIA_PROJECT_ROOT").unwrap_or_else(|_| ".".to_string()),
+            debug: env::var("RUSTOPEDIA_DEBUG").is_ok(),
         }
     }
 
@@ -98,6 +116,12 @@ impl AppConfig {
         }
         if self.embed_query_timeout_secs == 0 {
             anyhow::bail!("RUSTOPEDIA_EMBED_QUERY_TIMEOUT_SECS must be > 0");
+        }
+        if self.rust_analyzer_bin.trim().is_empty() {
+            anyhow::bail!("RUSTOPEDIA_RUST_ANALYZER_BIN cannot be empty");
+        }
+        if self.rust_analyzer_timeout_secs == 0 {
+            anyhow::bail!("RUSTOPEDIA_RUST_ANALYZER_TIMEOUT_SECS must be > 0");
         }
         if self.python_bin.trim().is_empty() {
             anyhow::bail!("RUSTOPEDIA_PYTHON_BIN cannot be empty");
@@ -141,6 +165,10 @@ impl AppConfig {
 
     pub fn embed_query_timeout(&self) -> Duration {
         Duration::from_secs(self.embed_query_timeout_secs)
+    }
+
+    pub fn rust_analyzer_timeout(&self) -> Duration {
+        Duration::from_secs(self.rust_analyzer_timeout_secs)
     }
 
     pub fn build_http_client(&self) -> anyhow::Result<reqwest::Client> {

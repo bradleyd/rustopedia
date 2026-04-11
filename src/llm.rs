@@ -21,6 +21,14 @@ impl LlmClient {
     }
 
     pub async fn generate(&self, model: &str, prompt: &str) -> Result<String> {
+        if self.config.debug {
+            eprintln!(
+                "[debug] llm provider={} model={} prompt_chars={}",
+                self.config.llm_provider.as_str(),
+                model,
+                prompt.chars().count()
+            );
+        }
         match self.config.llm_provider {
             LlmProvider::Ollama => self.generate_ollama(model, prompt).await,
             LlmProvider::OpenRouter => self.generate_openrouter(model, prompt).await,
@@ -41,9 +49,9 @@ impl LlmClient {
             .json(&request)
             .send()
             .await
-            .context("failed to call Ollama API")?
-            .error_for_status()
-            .context("Ollama API returned non-success status")?;
+            .context("failed to call Ollama API")?;
+
+        let response = ensure_success_response(response, "Ollama").await?;
 
         let body: OllamaGenerateResponse = response
             .json()
@@ -88,9 +96,9 @@ impl LlmClient {
             .json(&request)
             .send()
             .await
-            .context("failed to call OpenRouter API")?
-            .error_for_status()
-            .context("OpenRouter API returned non-success status")?;
+            .context("failed to call OpenRouter API")?;
+
+        let response = ensure_success_response(response, "OpenRouter").await?;
 
         let body: OpenRouterChatResponse = response
             .json()
@@ -108,6 +116,36 @@ impl LlmClient {
         }
 
         Ok(content.to_string())
+    }
+}
+
+async fn ensure_success_response(
+    response: reqwest::Response,
+    service_name: &str,
+) -> Result<reqwest::Response> {
+    let status = response.status();
+    if status.is_success() {
+        return Ok(response);
+    }
+
+    let body = response
+        .text()
+        .await
+        .unwrap_or_else(|_| "<failed to read response body>".to_string());
+
+    bail!(
+        "{service_name} API returned status {} with body: {}",
+        status,
+        truncate_for_log(&body, 800)
+    );
+}
+
+fn truncate_for_log(text: &str, max_chars: usize) -> String {
+    let truncated = text.chars().take(max_chars).collect::<String>();
+    if text.chars().count() > max_chars {
+        format!("{truncated}...")
+    } else {
+        truncated
     }
 }
 

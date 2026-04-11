@@ -1,5 +1,3 @@
-use std::io::{self, Write};
-
 mod config;
 mod generate_prompt;
 mod llm;
@@ -11,6 +9,8 @@ mod tools;
 
 use crate::config::AppConfig;
 use prettyprint::PrettyPrinter;
+use rustyline::DefaultEditor;
+use rustyline::error::ReadlineError;
 
 #[tokio::main]
 async fn main() {
@@ -29,12 +29,28 @@ async fn main() {
     };
 
     println!("{}", runtime.banner());
-    loop {
-        print!("> ");
-        io::stdout().flush().unwrap();
+    let mut editor = match DefaultEditor::new() {
+        Ok(editor) => editor,
+        Err(e) => {
+            eprintln!("❌ Failed to initialize line editor: {e}");
+            return;
+        }
+    };
 
-        let mut input = String::new();
-        io::stdin().read_line(&mut input).unwrap();
+    loop {
+        let input = match editor.readline("> ") {
+            Ok(line) => {
+                let _ = editor.add_history_entry(line.as_str());
+                line
+            }
+            Err(ReadlineError::Interrupted) => continue,
+            Err(ReadlineError::Eof) => break,
+            Err(e) => {
+                eprintln!("❌ Failed to read input: {e}");
+                break;
+            }
+        };
+
         match runtime.handle_input(&input, &mut session).await {
             Ok(runtime::HandleResult::Exit) => break,
             Ok(runtime::HandleResult::Noop) => continue,
