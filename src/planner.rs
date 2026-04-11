@@ -1,73 +1,49 @@
-use regex::Regex;
-use std::io::Write;
-use std::process::{Command, Stdio};
+use anyhow::{Context, Result, anyhow};
+use serde::Deserialize;
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PlanStep {
+    pub tool: String,
+    pub input: String,
+}
 
 pub fn generate_tool_plan_prompt(question: &str) -> String {
     format!(
-        "You are a Rust assistant that chooses which tools to run for answering a question.
-Available tools:
-- crate_agent: finds crates on crates.io (use for finding crate names or features)
-- github_agent: finds example Rust code on GitHub (use for vague questions or tutorials)
-- docs_agent: fetches Rust stdlib or crate docs from docs.rs (use for specific functions or stdlib modules)
-- none: for questions that don't need a tool and can be answered from general knowledge
-
-Return a JSON array plan of tools to run in order. Each step must include a 'tool' and 'input'.
-
-Question: {}
-
-Plan:",
+        "You are a Rust assistant that chooses which tools to run for answering a question.\nAvailable tools:\n- crate_agent: finds crates on crates.io (use for finding crate names or features)\n- github_agent: finds example Rust code on GitHub (use for vague questions or tutorials)\n- docs_agent: fetches Rust stdlib or crate docs from docs.rs (use for specific functions or stdlib modules)\n- none: for questions that don't need a tool and can be answered from general knowledge\n\nReturn ONLY valid JSON.\nSchema: [{{\"tool\":\"crate_agent|github_agent|docs_agent|none\",\"input\":\"string\"}}]\nQuestion: {}\nJSON:",
         question
     )
 }
 
-pub async fn generate_plan(question: &str) -> Vec<(String, String)> {
-    let prompt = generate_tool_plan_prompt(question);
-    let prompt_owned = prompt.clone();
-    let model_name = crate::utils::get_model_name();
-
-    let output = tokio::task::spawn_blocking(move || {
-        Command::new("ollama")
-            .args(["run", &model_name])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .and_then(|mut child| {
-                if let Some(stdin) = child.stdin.as_mut() {
-                    stdin.write_all(prompt_owned.as_bytes())?;
-                }
-                child.wait_with_output()
-            })
-    })
-    .await
-    .unwrap_or_else(|_| {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "Spawn failed",
-        ))
-    });
-
-    if let Ok(result) = output {
-        if let Ok(text) = String::from_utf8(result.stdout) {
-            println!("Tool plan response: {}", text);
-
-            // Extract first JSON array block using regex
-            let json_re = Regex::new(r"(?s)\[\s*\{.*\}\s*\]").unwrap();
-            if let Some(mat) = json_re.find(&text) {
-                let json_str = mat.as_str();
-                if let Ok(json) = serde_json::from_str::<Vec<serde_json::Value>>(json_str) {
-                    println!("Parsed JSON: {:#?}", json);
-                    return json
-                        .into_iter()
-                        .filter_map(|step| {
-                            let tool = step.get("tool")?.as_str()?.to_string();
-                            let input = step.get("input")?.as_str()?.to_string();
-                            Some((tool, input))
-                        })
-                        .collect();
-                }
-            }
-        }
+fn extract_first_json_array(text: &str) -> Option<&str> {
+    let start = text.find('[')?;
+    let end = text.rfind(']')?;
+    if end < start {
+        return None;
     }
+    Some(&text[start..=end])
+}
 
-    vec![]
+pub async fn generate_plan(
+    question: &str,
+    planner_model_name: &str,
+    llm_client: &crate::llm::LlmClient,
+) -> Result<Vec<PlanStep>> {
+    let prompt = generate_tool_plan_prompt(question);
+    let text = llm_client
+        .generate(planner_model_name, &prompt)
+        .await
+        .context("failed to run planner model")?;
+
+    let json_block = extract_first_json_array(&text).ok_or_else(|| {
+        anyhow!(
+            "planner returned no JSON array; output head: {}",
+            text.chars().take(200).collect::<String>()
+        )
+    })?;
+
+    let mut parsed: Vec<PlanStep> =
+        serde_json::from_str(json_block).context("failed to parse planner JSON")?;
+
+    parsed.retain(|step| step.tool != "none" && !step.tool.is_empty());
+    Ok(parsed)
 }

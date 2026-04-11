@@ -29,13 +29,14 @@ impl QdrantClient {
 
         let response = self
             .client
-            .post(&format!(
+            .post(format!(
                 "{}/collections/{}/points/search",
                 self.base_url, collection_name
             ))
             .json(&search_payload)
             .send()
-            .await?;
+            .await?
+            .error_for_status()?;
 
         let search_results: Value = response.json().await?;
 
@@ -99,7 +100,8 @@ pub async fn query_qdrant(
     query_vector: Vec<f32>,
     top: usize,
 ) -> Result<String, Box<dyn Error>> {
-    let client = QdrantClient::new("http://localhost:6333");
+    let config = crate::config::AppConfig::from_env();
+    let client = QdrantClient::new(&config.qdrant_url);
 
     let results = client
         .search_collection(collection_name, query_vector, top)
@@ -130,14 +132,13 @@ pub async fn query_qdrant_with_text(
 async fn generate_embedding(text: &str) -> Result<Vec<f32>, Box<dyn Error>> {
     use std::process::Command;
 
+    let config = crate::config::AppConfig::from_env();
     let text_owned = text.to_string();
     let output = tokio::task::spawn_blocking(move || {
-        Command::new("sh")
-            .arg("-c")
-            .arg(format!(
-                "cd /Users/bradleydsmith/Projects/rustopedia && python3 rag/embed_query.py '{}'",
-                text_owned
-            ))
+        Command::new(&config.python_bin)
+            .arg(&config.embed_query_script)
+            .arg(text_owned)
+            .current_dir(&config.project_root)
             .output()
     })
     .await??;
@@ -180,4 +181,3 @@ mod tests {
         }
     }
 }
-

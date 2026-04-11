@@ -2250,6 +2250,7 @@ dependencies = [
 name = "rustopedia"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "chromadb",
  "prettyprint",
  "qdrant-client",

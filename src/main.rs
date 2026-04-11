@@ -1,33 +1,34 @@
-use core::str;
+use anyhow::{Context, Result};
 use serde_json::Value;
 use std::io::{self, Write};
-use std::process::Command;
 
+mod config;
+mod generate_prompt;
+mod llm;
 mod planner;
 mod router_llm;
 mod tools;
-mod utils;
+
+use crate::config::AppConfig;
 use crate::generate_prompt::format_agent_output_for_llm;
 use planner::generate_plan;
 use prettyprint::PrettyPrinter;
 
-mod generate_prompt;
-
-async fn run_agent(agent_type: &str, query: &str) -> Option<String> {
+async fn run_agent(agent_type: &str, query: &str) -> Result<Option<String>> {
     match agent_type {
-        "crate_agent" => match tools::crate_search::search_crates(query).await {
-            Ok(json) => Some(serde_json::to_string_pretty(&json).unwrap_or_default()),
-            Err(_) => None,
-        },
-        "docs_agent" => match tools::docs::search_docs(query).await {
-            Ok(json) => Some(serde_json::to_string_pretty(&json).unwrap_or_default()),
-            Err(_) => None,
-        },
-        "github_agent" => match tools::github::search_github(query).await {
-            Ok(json) => Some(serde_json::to_string_pretty(&json).unwrap_or_default()),
-            Err(_) => None,
-        },
-        _ => None,
+        "crate_agent" => tools::crate_search::search_crates(query)
+            .await
+            .map(|json| Some(serde_json::to_string_pretty(&json).unwrap_or_default()))
+            .map_err(|e| anyhow::anyhow!("crate_agent request failed: {e}")),
+        "docs_agent" => tools::docs::search_docs(query)
+            .await
+            .map(|json| Some(serde_json::to_string_pretty(&json).unwrap_or_default()))
+            .map_err(|e| anyhow::anyhow!("docs_agent request failed: {e}")),
+        "github_agent" => tools::github::search_github(query)
+            .await
+            .map(|json| Some(serde_json::to_string_pretty(&json).unwrap_or_default()))
+            .map_err(|e| anyhow::anyhow!("github_agent request failed: {e}")),
+        _ => Ok(None),
     }
 }
 
@@ -53,50 +54,39 @@ Use prior conversation history to maintain coherence when needed.
         query.trim()
     )
 }
-async fn call_rag(query: &str, collection: &str) -> Option<String> {
-    match tools::qdrant_client::query_qdrant_with_text(collection, query, 10).await {
-        Ok(context) => {
-            println!("Rag response empty? {:?}", context.is_empty());
-            Some(context)
-        }
-        Err(e) => {
-            eprintln!("❌ Qdrant query failed: {}", e);
-            None
-        }
-    }
+
+async fn call_rag(query: &str, collection: &str, top_k: usize) -> Result<String> {
+    tools::qdrant_client::query_qdrant_with_text(collection, query, top_k)
+        .await
+        .map_err(|e| anyhow::anyhow!("Qdrant query failed for collection '{collection}': {e}"))
 }
 
-async fn call_local_llm(prompt: &str) -> String {
-    let prompt_owned = prompt.to_string();
-    let model_name = crate::utils::get_model_name();
-    tokio::task::spawn_blocking(move || {
-        let mut child = Command::new("ollama")
-            .args(["run", &model_name])
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .spawn()
-            .expect("Failed to start LLM");
-
-        {
-            let stdin = child.stdin.as_mut().expect("Failed to open stdin");
-            stdin.write_all(prompt_owned.as_bytes()).unwrap();
-        }
-
-        let output = child.wait_with_output().expect("Failed to read output");
-        String::from_utf8_lossy(&output.stdout).to_string()
-    })
-    .await
-    .unwrap_or_default()
+async fn call_local_llm(
+    prompt: &str,
+    config: &AppConfig,
+    llm_client: &crate::llm::LlmClient,
+) -> Result<String> {
+    llm_client
+        .generate(&config.model_name, prompt)
+        .await
+        .context("failed to generate final response")
 }
 
 #[tokio::main]
 async fn main() {
     let mut history: Vec<(String, String)> = Vec::new();
+    let config = AppConfig::from_env();
+    if let Err(e) = config.validate() {
+        eprintln!("❌ Invalid configuration: {e}");
+        return;
+    }
+    let llm_client = crate::llm::LlmClient::new(config.clone());
 
     println!("Rust LLM Chat Assistant (type 'exit' to quit)");
     loop {
         print!("> ");
         io::stdout().flush().unwrap();
+
         let mut input = String::new();
         io::stdin().read_line(&mut input).unwrap();
         let query = input.trim();
@@ -106,47 +96,38 @@ async fn main() {
 
         let mut context_chunks = Vec::new();
 
-        // 1. Get a plan from LLM
         println!("Planning which tools to use...");
-        let plan = generate_plan(query).await;
+        let plan = match generate_plan(query, &config.planner_model_name, &llm_client).await {
+            Ok(plan) => plan,
+            Err(e) => {
+                eprintln!("⚠️ Planner failed: {e}");
+                Vec::new()
+            }
+        };
         println!("Plan {:?}", plan);
 
-        // TODO save tool and pass that to call_rag() to descide which collection to use
-        // match vec contains {
-        // crate_agent => crates
-        // docs_agent => rust-docs,
-        // github_agent => rust-book,
-        // }
-        // push to a set
-        // This is because chromadb has different doc setup in the db and the url needs to reflect
-        // which one to call via http.
-        //
-        // 2. Run each agent in the plan if a plan exists
-        if !plan.is_empty() {
-            for (tool, tool_input) in &plan {
-                println!("Running agent: {} with input: {}", tool, tool_input);
-
-                if let Some(response) = run_agent(tool, tool_input).await {
-                    // Attempt to parse the response as JSON
-                    match serde_json::from_str::<Value>(&response) {
-                        Ok(json_value) => {
-                            // If successful, format it using the new function
-                            context_chunks.push(format_agent_output_for_llm(tool, &json_value));
-                        }
-                        Err(_) => {
-                            // If not JSON, or parsing fails, just push the raw string
-                            context_chunks.push(format!("From {}: {}", tool, response.trim()));
-                        }
+        for step in &plan {
+            println!("Running agent: {} with input: {}", step.tool, step.input);
+            match run_agent(&step.tool, &step.input).await {
+                Ok(Some(response)) => match serde_json::from_str::<Value>(&response) {
+                    Ok(json_value) => {
+                        context_chunks.push(format_agent_output_for_llm(&step.tool, &json_value))
                     }
+                    Err(_) => context_chunks.push(format!("From {}: {}", step.tool, response.trim())),
+                },
+                Ok(None) => {
+                    eprintln!("⚠️ Unknown agent in plan: {}", step.tool);
+                }
+                Err(e) => {
+                    eprintln!("⚠️ Agent failed ({}): {e}", step.tool);
                 }
             }
         }
 
-        // 3. Always run RAG as well
         println!("Getting RAG information");
         let mut rag_collections = std::collections::HashSet::new();
-        for (tool, _) in &plan {
-            match tool.as_str() {
+        for step in &plan {
+            match step.tool.as_str() {
                 "crate_agent" => {
                     rag_collections.insert("crates");
                 }
@@ -156,64 +137,53 @@ async fn main() {
                 "github_agent" => {
                     rag_collections.insert("rust-book");
                 }
-                _ => { /* Do nothing for unknown tools */ }
+                _ => {}
             }
         }
-        // Always include rust-docs by default if no specific agent suggested a collection
+
         if rag_collections.is_empty() {
             rag_collections.insert("rust-docs");
         }
 
         for collection in rag_collections {
-            if let Some(rag) = call_rag(query, collection).await {
-                context_chunks.push(format!("From memory ({}): {}", collection, rag.trim()));
+            match call_rag(query, collection, config.rag_top_k).await {
+                Ok(rag) if !rag.trim().is_empty() => {
+                    context_chunks.push(format!("From memory ({}): {}", collection, rag.trim()));
+                }
+                Ok(_) => {
+                    eprintln!("⚠️ Empty RAG response for collection '{}'.", collection);
+                }
+                Err(e) => {
+                    eprintln!("⚠️ {e}");
+                }
             }
         }
-        //        println!("Memory context retrieved. {:?}", context_chunks);
 
-        // 4. Build conversation memory
         let past = history
             .iter()
-            .map(|(q, a)| {
-                format!(
-                    "User: {}
-Assistant: {}",
-                    q, a
-                )
-            })
+            .map(|(q, a)| format!("User: {}\nAssistant: {}", q, a))
             .collect::<Vec<String>>()
-            .join(
-                "
-",
-            );
-        // 5. Build and send prompt
-        let full_context = context_chunks.join(
-            "
+            .join("\n");
 
-",
-        );
-
+        let full_context = context_chunks.join("\n\n");
         let prompt = generate_prompt(&past, &full_context, query);
-        //println!("DEBUG PROMPT: {:?}", prompt);
-        let response = call_local_llm(&prompt).await;
+
+        let response = match call_local_llm(&prompt, &config, &llm_client).await {
+            Ok(response) => response,
+            Err(e) => {
+                eprintln!("❌ LLM call failed: {e}");
+                continue;
+            }
+        };
+
         let printer = PrettyPrinter::default().language("rust").build();
         match printer {
             Ok(tprint) => {
                 if tprint.string(&response).is_err() {
-                    println!(
-                        "
-{}
-",
-                        response.trim()
-                    )
+                    println!("\n{}\n", response.trim())
                 }
             }
-            Err(_) => println!(
-                "
-{}
-",
-                response.trim()
-            ),
+            Err(_) => println!("\n{}\n", response.trim()),
         }
 
         history.push((query.to_string(), response.trim().to_string()));
