@@ -1,6 +1,7 @@
-use reqwest::Client;
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use serde_json::Value;
+
+use crate::config::AppConfig;
 
 fn classify_query(query: &str) -> &'static str {
     let q = query.to_lowercase();
@@ -18,8 +19,9 @@ fn classify_query(query: &str) -> &'static str {
 async fn search_github_crates(
     topic: &str,
     limit: usize,
+    config: &AppConfig,
 ) -> Result<Vec<(String, String)>, Box<dyn std::error::Error>> {
-    let client = Client::new();
+    let client = config.build_http_client()?;
     let mut headers = HeaderMap::new();
     headers.insert(USER_AGENT, HeaderValue::from_static("rust-llm-agent"));
     let url = format!(
@@ -41,8 +43,8 @@ async fn search_github_crates(
     Ok(repos)
 }
 
-async fn fetch_readme(repo: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let client = Client::new();
+async fn fetch_readme(repo: &str, config: &AppConfig) -> Result<String, Box<dyn std::error::Error>> {
+    let client = config.build_http_client()?;
     let url = format!("https://api.github.com/repos/{}/readme", repo);
 
     let response = client
@@ -55,13 +57,16 @@ async fn fetch_readme(repo: &str) -> Result<String, Box<dyn std::error::Error>> 
     Ok(response.text().await?)
 }
 
-pub async fn search_github(query: &str) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+pub async fn search_github(
+    query: &str,
+    config: &AppConfig,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     let topic = classify_query(query);
-    match search_github_crates(topic, 5).await {
+    match search_github_crates(topic, 5, config).await {
         Ok(repos) => {
             let mut examples = Vec::new();
             for (repo, url) in repos {
-                if let Ok(readme) = fetch_readme(&repo).await {
+                if let Ok(readme) = fetch_readme(&repo, config).await {
                     examples.push(serde_json::json!({
                         "crate": repo,
                         "url": url,

@@ -1,5 +1,7 @@
 use scraper::{Html, Selector};
 
+use crate::config::AppConfig;
+
 fn extract_docs_as_json(html: &str) -> serde_json::Value {
     let document = Html::parse_document(html);
     let main_selector = Selector::parse("main").unwrap();
@@ -62,9 +64,13 @@ fn build_url(crate_input: &str) -> String {
     }
 }
 
-pub async fn search_docs(input: &str) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+pub async fn search_docs(
+    input: &str,
+    config: &AppConfig,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     let url = build_url(input);
-    let body = reqwest::get(&url).await?.text().await?;
+    let client = config.build_http_client()?;
+    let body = client.get(&url).send().await?.text().await?;
     let docs = extract_docs_as_json(&body);
 
     Ok(serde_json::json!({

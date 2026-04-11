@@ -1,4 +1,5 @@
 use std::env;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LlmProvider {
@@ -29,6 +30,9 @@ pub struct AppConfig {
     pub openrouter_api_key: Option<String>,
     pub qdrant_url: String,
     pub rag_top_k: usize,
+    pub http_connect_timeout_secs: u64,
+    pub http_request_timeout_secs: u64,
+    pub embed_query_timeout_secs: u64,
     pub python_bin: String,
     pub embed_query_script: String,
     pub project_root: String,
@@ -54,6 +58,18 @@ impl AppConfig {
                 .ok()
                 .and_then(|v| v.parse::<usize>().ok())
                 .unwrap_or(10),
+            http_connect_timeout_secs: env::var("RUSTOPEDIA_HTTP_CONNECT_TIMEOUT_SECS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(10),
+            http_request_timeout_secs: env::var("RUSTOPEDIA_HTTP_REQUEST_TIMEOUT_SECS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(30),
+            embed_query_timeout_secs: env::var("RUSTOPEDIA_EMBED_QUERY_TIMEOUT_SECS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(30),
             python_bin: env::var("RUSTOPEDIA_PYTHON_BIN").unwrap_or_else(|_| "python3".to_string()),
             embed_query_script: env::var("RUSTOPEDIA_EMBED_QUERY_SCRIPT")
                 .unwrap_or_else(|_| "rag/embed_query.py".to_string()),
@@ -73,6 +89,15 @@ impl AppConfig {
         }
         if self.rag_top_k == 0 {
             anyhow::bail!("RUSTOPEDIA_RAG_TOP_K must be > 0");
+        }
+        if self.http_connect_timeout_secs == 0 {
+            anyhow::bail!("RUSTOPEDIA_HTTP_CONNECT_TIMEOUT_SECS must be > 0");
+        }
+        if self.http_request_timeout_secs == 0 {
+            anyhow::bail!("RUSTOPEDIA_HTTP_REQUEST_TIMEOUT_SECS must be > 0");
+        }
+        if self.embed_query_timeout_secs == 0 {
+            anyhow::bail!("RUSTOPEDIA_EMBED_QUERY_TIMEOUT_SECS must be > 0");
         }
         if self.python_bin.trim().is_empty() {
             anyhow::bail!("RUSTOPEDIA_PYTHON_BIN cannot be empty");
@@ -104,5 +129,25 @@ impl AppConfig {
         }
 
         Ok(())
+    }
+
+    pub fn http_connect_timeout(&self) -> Duration {
+        Duration::from_secs(self.http_connect_timeout_secs)
+    }
+
+    pub fn http_request_timeout(&self) -> Duration {
+        Duration::from_secs(self.http_request_timeout_secs)
+    }
+
+    pub fn embed_query_timeout(&self) -> Duration {
+        Duration::from_secs(self.embed_query_timeout_secs)
+    }
+
+    pub fn build_http_client(&self) -> anyhow::Result<reqwest::Client> {
+        reqwest::Client::builder()
+            .connect_timeout(self.http_connect_timeout())
+            .timeout(self.http_request_timeout())
+            .build()
+            .map_err(Into::into)
     }
 }

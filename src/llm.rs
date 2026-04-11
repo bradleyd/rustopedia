@@ -11,11 +11,13 @@ pub struct LlmClient {
 }
 
 impl LlmClient {
-    pub fn new(config: AppConfig) -> Self {
-        Self {
-            http_client: reqwest::Client::new(),
+    pub fn new(config: AppConfig) -> Result<Self> {
+        Ok(Self {
+            http_client: config
+                .build_http_client()
+                .context("failed to build LLM HTTP client")?,
             config,
-        }
+        })
     }
 
     pub async fn generate(&self, model: &str, prompt: &str) -> Result<String> {

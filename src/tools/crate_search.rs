@@ -2,6 +2,8 @@ use reqwest::header::USER_AGENT;
 use serde::Serialize;
 use serde_json::json;
 
+use crate::config::AppConfig;
+
 #[derive(Serialize)]
 struct CrateInfo {
     name: String,
@@ -10,9 +12,12 @@ struct CrateInfo {
     homepage: Option<String>,
 }
 
-pub async fn search_crates(query: &str) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+pub async fn search_crates(
+    query: &str,
+    config: &AppConfig,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     let url = format!("https://crates.io/api/v1/crates?q={}", query);
-    let client = reqwest::Client::new();
+    let client = config.build_http_client()?;
 
     let response = client
         .get(&url)

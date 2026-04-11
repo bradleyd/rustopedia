@@ -1,18 +1,15 @@
-use reqwest::Client;
 use serde_json::{Value, json};
 use std::error::Error;
+use std::time::Duration;
 
 pub struct QdrantClient {
-    client: Client,
+    client: reqwest::Client,
     base_url: String,
 }
 
 impl QdrantClient {
-    pub fn new(base_url: &str) -> Self {
-        Self {
-            client: Client::new(),
-            base_url: base_url.to_string(),
-        }
+    pub fn new(base_url: &str, client: reqwest::Client) -> Self {
+        Self { client, base_url: base_url.to_string() }
     }
 
     pub async fn search_collection(
@@ -101,7 +98,7 @@ pub async fn query_qdrant(
     top: usize,
 ) -> Result<String, Box<dyn Error>> {
     let config = crate::config::AppConfig::from_env();
-    let client = QdrantClient::new(&config.qdrant_url);
+    let client = QdrantClient::new(&config.qdrant_url, config.build_http_client()?);
 
     let results = client
         .search_collection(collection_name, query_vector, top)
@@ -134,14 +131,16 @@ async fn generate_embedding(text: &str) -> Result<Vec<f32>, Box<dyn Error>> {
 
     let config = crate::config::AppConfig::from_env();
     let text_owned = text.to_string();
-    let output = tokio::task::spawn_blocking(move || {
+    let timeout = config.embed_query_timeout();
+    let output = tokio::time::timeout(timeout, tokio::task::spawn_blocking(move || {
         Command::new(&config.python_bin)
             .arg(&config.embed_query_script)
             .arg(text_owned)
             .current_dir(&config.project_root)
             .output()
-    })
-    .await??;
+    }))
+    .await
+    .map_err(|_| format!("embedding script timed out after {}", format_duration(timeout)))???;
 
     if !output.status.success() {
         return Err(format!(
@@ -157,13 +156,21 @@ async fn generate_embedding(text: &str) -> Result<Vec<f32>, Box<dyn Error>> {
     Ok(embedding)
 }
 
+fn format_duration(duration: Duration) -> String {
+    format!("{}s", duration.as_secs())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[tokio::test]
     async fn test_qdrant_search() {
-        let client = QdrantClient::new("http://localhost:6333");
+        let config = crate::config::AppConfig::from_env();
+        let client = QdrantClient::new(
+            &config.qdrant_url,
+            config.build_http_client().expect("http client"),
+        );
 
         // Test with dummy vector
         let dummy_vector = vec![0.1; 384];

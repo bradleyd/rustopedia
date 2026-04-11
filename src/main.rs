@@ -14,17 +14,17 @@ use crate::generate_prompt::format_agent_output_for_llm;
 use planner::generate_plan;
 use prettyprint::PrettyPrinter;
 
-async fn run_agent(agent_type: &str, query: &str) -> Result<Option<String>> {
+async fn run_agent(agent_type: &str, query: &str, config: &AppConfig) -> Result<Option<String>> {
     match agent_type {
-        "crate_agent" => tools::crate_search::search_crates(query)
+        "crate_agent" => tools::crate_search::search_crates(query, config)
             .await
             .map(|json| Some(serde_json::to_string_pretty(&json).unwrap_or_default()))
             .map_err(|e| anyhow::anyhow!("crate_agent request failed: {e}")),
-        "docs_agent" => tools::docs::search_docs(query)
+        "docs_agent" => tools::docs::search_docs(query, config)
             .await
             .map(|json| Some(serde_json::to_string_pretty(&json).unwrap_or_default()))
             .map_err(|e| anyhow::anyhow!("docs_agent request failed: {e}")),
-        "github_agent" => tools::github::search_github(query)
+        "github_agent" => tools::github::search_github(query, config)
             .await
             .map(|json| Some(serde_json::to_string_pretty(&json).unwrap_or_default()))
             .map_err(|e| anyhow::anyhow!("github_agent request failed: {e}")),
@@ -80,7 +80,13 @@ async fn main() {
         eprintln!("❌ Invalid configuration: {e}");
         return;
     }
-    let llm_client = crate::llm::LlmClient::new(config.clone());
+    let llm_client = match crate::llm::LlmClient::new(config.clone()) {
+        Ok(client) => client,
+        Err(e) => {
+            eprintln!("❌ Failed to initialize LLM client: {e}");
+            return;
+        }
+    };
 
     println!("Rust LLM Chat Assistant (type 'exit' to quit)");
     loop {
@@ -108,7 +114,7 @@ async fn main() {
 
         for step in &plan {
             println!("Running agent: {} with input: {}", step.tool, step.input);
-            match run_agent(&step.tool, &step.input).await {
+            match run_agent(&step.tool, &step.input, &config).await {
                 Ok(Some(response)) => match serde_json::from_str::<Value>(&response) {
                     Ok(json_value) => {
                         context_chunks.push(format_agent_output_for_llm(&step.tool, &json_value))
