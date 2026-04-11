@@ -1,5 +1,63 @@
 use serde_json::Value;
 
+use crate::planner::PlanStep;
+use crate::session::SessionMode;
+
+pub fn build_prompt(
+    mode: SessionMode,
+    past: &str,
+    context: &str,
+    query: &str,
+    plan: &[PlanStep],
+) -> String {
+    let mode_instruction = match mode {
+        SessionMode::Ask => {
+            "You are a helpful Rust programming assistant. Answer directly and use provided context when it helps."
+        }
+        SessionMode::Review => {
+            "You are reviewing or explaining Rust code. If the user is asking for evaluation, findings and risks come first. If the user is asking for understanding, give a clear walkthrough grounded in the available context."
+        }
+        SessionMode::Edit => {
+            "You are preparing a Rust code change workflow. Focus on the intended edit, affected areas, and verification steps. If the request lacks enough repo context, say what is missing."
+        }
+    };
+
+    let plan_summary = if plan.is_empty() {
+        "No tools were selected.".to_string()
+    } else {
+        plan.iter()
+            .map(|step| format!("- {}: {}", step.tool, step.input))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    format!(
+        "{mode_instruction}
+
+### Current Mode:
+{}
+
+### Planned Steps:
+{}
+
+### Past Conversation:
+{}
+
+### Context:
+{}
+
+### User Question:
+{}
+
+### Answer:",
+        mode.as_str(),
+        plan_summary,
+        past.trim(),
+        context.trim(),
+        query.trim()
+    )
+}
+
 pub fn format_agent_output_for_llm(tool_name: &str, agent_info: &Value) -> String {
     let mut context_sections = Vec::new();
 
