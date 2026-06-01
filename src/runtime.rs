@@ -319,6 +319,7 @@ impl Runtime {
         let mut total_generation_elapsed = std::time::Duration::ZERO;
         let mut last_prompt_tokens: usize;
         let last_response: String;
+        let mut prev_was_format_failure = false;
 
         loop {
             let synth_started = Instant::now();
@@ -364,6 +365,52 @@ impl Runtime {
                     placeholders_now
                 );
             }
+
+            // Format errors trump every other retry kind. If the model
+            // produced no parseable patches at all (either a malformed
+            // block or no patch fence whatsoever), reset format
+            // expectations explicitly. A response with at least one
+            // usable patch — even alongside malformed siblings — falls
+            // through to anchor/validation so partial progress is kept.
+            // Circuit-break on two consecutive format failures — the
+            // model is stuck on the envelope and another retry won't
+            // help.
+            let is_format_failure = parsed.patches.is_empty();
+            if is_format_failure {
+                if prev_was_format_failure {
+                    if self.config.debug {
+                        eprintln!(
+                            "[debug] retry_loop circuit_break iteration={} reason=consecutive_format_failure",
+                            iteration
+                        );
+                    }
+                    last_response = response;
+                    break;
+                }
+                if iteration < max_retries {
+                    let evidence =
+                        crate::retry_loop::gather_format_evidence(&parsed, &response);
+                    if self.config.debug {
+                        eprintln!(
+                            "[debug] retry_loop scheduling iteration={} kind=format parse_errors={} patches={} max_retries={}",
+                            iteration + 1,
+                            parsed.errors.len(),
+                            parsed.patches.len(),
+                            max_retries
+                        );
+                    }
+                    retry_directive =
+                        Some(crate::retry_loop::build_retry_directive(query, &evidence));
+                    iteration += 1;
+                    prev_was_format_failure = true;
+                    continue;
+                }
+                // Budget exhausted on a format failure — fall through.
+                last_response = response;
+                break;
+            }
+
+            prev_was_format_failure = false;
 
             let anchor_retryable = crate::retry_loop::has_retryable_failures(&verified);
             if iteration < max_retries && anchor_retryable {
@@ -1370,10 +1417,10 @@ fn extract_struct_fields(block: &str) -> Vec<String> {
         let old_depth = depth;
         depth += brace_delta(raw);
         // Only consider lines at depth==1 (inside the struct body, not nested).
-        if old_depth == 1 || (old_depth == 0 && trimmed.contains('{') && depth >= 1) {
-            if let Some(field) = parse_struct_field_line(trimmed) {
-                fields.push(field);
-            }
+        if (old_depth == 1 || (old_depth == 0 && trimmed.contains('{') && depth >= 1))
+            && let Some(field) = parse_struct_field_line(trimmed)
+        {
+            fields.push(field);
         }
     }
     fields

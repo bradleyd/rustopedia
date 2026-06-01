@@ -54,6 +54,14 @@ pub enum RetryDiagnosis {
         output_excerpt: String,
         failing_spans: Vec<FailingSpan>,
     },
+    /// The model's response could not be parsed as any usable patch
+    /// (either no ````patch` blocks at all, or blocks were
+    /// present but their inner SEARCH/REPLACE shape was malformed). The
+    /// retry directive re-states the canonical format inline.
+    PatchFormatError {
+        parse_error_messages: Vec<String>,
+        raw_output_excerpt: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -144,6 +152,54 @@ pub async fn gather_retry_evidence(
     }
 
     Ok(RetryEvidence { hits })
+}
+
+/// Build retry evidence describing a patch-format failure: either no
+/// `````patch` blocks were emitted at all, or blocks were emitted but did
+/// not parse into usable SEARCH/REPLACE edits. The retry directive will
+/// re-state the canonical format inline.
+pub fn gather_format_evidence(
+    parsed: &crate::patch::ParsedPatches,
+    raw_response: &str,
+) -> RetryEvidence {
+    let parse_error_messages: Vec<String> = parsed
+        .errors
+        .iter()
+        .map(|e| {
+            if e.block_excerpt.is_empty() {
+                e.message.clone()
+            } else {
+                format!("{} — block started: {}", e.message, e.block_excerpt)
+            }
+        })
+        .collect();
+
+    RetryEvidence {
+        hits: vec![AnchorRetryHit {
+            path: String::new(),
+            edit_index: 0,
+            edit_total: 1,
+            failed_search: String::new(),
+            status: AnchorStatus::NotFound, // not meaningful for format errors; rendering branches on diagnosis
+            diagnosis: RetryDiagnosis::PatchFormatError {
+                parse_error_messages,
+                raw_output_excerpt: bound_excerpt(raw_response, 800),
+            },
+        }],
+    }
+}
+
+fn bound_excerpt(text: &str, max_chars: usize) -> String {
+    let trimmed = text.trim();
+    if trimmed.chars().count() <= max_chars {
+        return trimmed.to_string();
+    }
+    let mut out = String::with_capacity(max_chars + 16);
+    for c in trimmed.chars().take(max_chars) {
+        out.push(c);
+    }
+    out.push_str("\n… (truncated)");
+    out
 }
 
 /// Build retry evidence from a failed `cargo check` run inside a scratch
@@ -379,6 +435,10 @@ fn render_hit(index: usize, hit: &AnchorRetryHit) -> String {
         hit.diagnosis,
         RetryDiagnosis::CargoCheckFailed { .. }
     );
+    let is_format_failure = matches!(
+        hit.diagnosis,
+        RetryDiagnosis::PatchFormatError { .. }
+    );
 
     let header = if is_create_on_existing {
         format!(
@@ -387,6 +447,8 @@ fn render_hit(index: usize, hit: &AnchorRetryHit) -> String {
         )
     } else if is_cargo_check_failure {
         format!("Failure #{index}: cargo check failed after applying your patch")
+    } else if is_format_failure {
+        format!("Failure #{index}: your previous response did not contain a usable patch block")
     } else {
         format!(
             "Failure #{index}: {} (edit {} of {}) — status: {}",
@@ -459,6 +521,54 @@ fn render_hit(index: usize, hit: &AnchorRetryHit) -> String {
         }
         RetryDiagnosis::FileUnreadable { message } => {
             format!("The target file could not be read while diagnosing this failure: {message}. Verify the file path.")
+        }
+        RetryDiagnosis::PatchFormatError {
+            parse_error_messages,
+            raw_output_excerpt,
+        } => {
+            let parse_section = if parse_error_messages.is_empty() {
+                "Your response contained no ```patch ...``` blocks at all. The edit-mode harness only writes changes that arrive as patch blocks; prose alone is not actionable.".to_string()
+            } else {
+                let bullets = parse_error_messages
+                    .iter()
+                    .map(|m| format!("  - {m}"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!("Your response contained patch block(s) but they failed to parse. Errors:\n{bullets}")
+            };
+
+            let canonical = r#"```patch path=src/foo.rs
+<<<SEARCH
+the exact existing line(s) from the file
+SEARCH>>>
+<<<REPLACE
+the replacement line(s)
+REPLACE>>>
+```"#;
+
+            let excerpt_section = if raw_output_excerpt.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "Excerpt of your previous response:\n```\n{}\n```",
+                    raw_output_excerpt
+                )
+            };
+
+            let mut parts = vec![
+                parse_section,
+                format!(
+                    "Re-emit using exactly this shape (markers each on their own line, fence opens with ```patch and closes with ```):\n{canonical}"
+                ),
+            ];
+            if !excerpt_section.is_empty() {
+                parts.push(excerpt_section);
+            }
+            parts.push(
+                "Output the corrected patch block(s) first, with at most one short sentence of prose before them. Do not narrate your reasoning. Do not wrap the patch in a ```rust fence."
+                    .to_string(),
+            );
+            parts.join("\n\n")
         }
         RetryDiagnosis::CargoCheckFailed {
             output_excerpt,
@@ -741,6 +851,82 @@ mod tests {
         assert!(has_retryable_failures(&verified));
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn gather_format_evidence_renders_canonical_example_and_parse_errors() {
+        let parsed = crate::patch::ParsedPatches {
+            patches: vec![],
+            errors: vec![crate::patch::PatchParseError {
+                message: "expected '<<<SEARCH' on its own line, got: 'SEARCH'".to_string(),
+                block_excerpt: "<<< SEARCH".to_string(),
+            }],
+        };
+        let evidence = gather_format_evidence(&parsed, "blah blah blah");
+        let directive = build_retry_directive("rename Foo to Bar", &evidence);
+
+        assert!(
+            directive.contains("did not contain a usable patch block"),
+            "directive should label the failure: {directive}"
+        );
+        assert!(
+            directive.contains("expected '<<<SEARCH'"),
+            "directive should quote the parse error verbatim: {directive}"
+        );
+        assert!(
+            directive.contains("block started: <<< SEARCH"),
+            "directive should include the block excerpt: {directive}"
+        );
+        assert!(
+            directive.contains("```patch path=src/foo.rs"),
+            "directive should show the canonical fence: {directive}"
+        );
+        assert!(
+            directive.contains("<<<SEARCH") && directive.contains("SEARCH>>>"),
+            "directive should show the canonical SEARCH markers: {directive}"
+        );
+        assert!(
+            directive.contains("<<<REPLACE") && directive.contains("REPLACE>>>"),
+            "directive should show the canonical REPLACE markers: {directive}"
+        );
+        assert!(
+            directive.contains("rename Foo to Bar"),
+            "directive should echo the original task: {directive}"
+        );
+        assert!(
+            directive.contains("Do not narrate"),
+            "directive should suppress narration: {directive}"
+        );
+    }
+
+    #[test]
+    fn gather_format_evidence_handles_zero_patch_blocks() {
+        let parsed = crate::patch::ParsedPatches {
+            patches: vec![],
+            errors: vec![],
+        };
+        let huge_response = "x".repeat(5_000);
+        let evidence = gather_format_evidence(&parsed, &huge_response);
+        let directive = build_retry_directive("add a config reader", &evidence);
+
+        assert!(
+            directive.contains("no ```patch ...``` blocks at all"),
+            "no-block case should explain the absence: {directive}"
+        );
+        // The excerpt must be bounded so a 5K response does not blow up the directive.
+        let excerpt_section = directive
+            .split("Excerpt of your previous response:")
+            .nth(1)
+            .expect("expected an excerpt section");
+        assert!(
+            excerpt_section.contains("… (truncated)"),
+            "long excerpts should be truncated: {excerpt_section}"
+        );
+        assert!(
+            excerpt_section.len() < 1200,
+            "excerpt section should stay bounded, got {} chars",
+            excerpt_section.len()
+        );
     }
 
     #[test]
