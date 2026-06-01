@@ -43,7 +43,10 @@ async fn search_github_crates(
     Ok(repos)
 }
 
-async fn fetch_readme(repo: &str, config: &AppConfig) -> Result<String, Box<dyn std::error::Error>> {
+async fn fetch_readme(
+    repo: &str,
+    config: &AppConfig,
+) -> Result<String, Box<dyn std::error::Error>> {
     let client = config.build_http_client()?;
     let url = format!("https://api.github.com/repos/{}/readme", repo);
 
@@ -54,7 +57,7 @@ async fn fetch_readme(repo: &str, config: &AppConfig) -> Result<String, Box<dyn 
         .send()
         .await?;
 
-    Ok(response.text().await?)
+    Ok(truncate_readme(&response.text().await?, 1200))
 }
 
 pub async fn search_github(
@@ -62,7 +65,7 @@ pub async fn search_github(
     config: &AppConfig,
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     let topic = classify_query(query);
-    match search_github_crates(topic, 5, config).await {
+    match search_github_crates(topic, 3, config).await {
         Ok(repos) => {
             let mut examples = Vec::new();
             for (repo, url) in repos {
@@ -77,5 +80,14 @@ pub async fn search_github(
             Ok(serde_json::json!({ "examples": examples }))
         }
         Err(e) => Err(e),
+    }
+}
+
+fn truncate_readme(readme: &str, max_chars: usize) -> String {
+    let truncated = readme.chars().take(max_chars).collect::<String>();
+    if readme.chars().count() > max_chars {
+        format!("{truncated}...")
+    } else {
+        truncated
     }
 }

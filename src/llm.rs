@@ -1,5 +1,4 @@
 use anyhow::{Context, Result, anyhow, bail};
-use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 
 use crate::config::{AppConfig, LlmProvider};
@@ -36,11 +35,19 @@ impl LlmClient {
     }
 
     async fn generate_ollama(&self, model: &str, prompt: &str) -> Result<String> {
-        let url = format!("{}/api/generate", self.config.ollama_base_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/api/generate",
+            self.config.ollama_base_url.trim_end_matches('/')
+        );
+        let profile = crate::model_profile::ModelProfile::for_id(model, LlmProvider::Ollama);
         let request = OllamaGenerateRequest {
             model,
             prompt,
             stream: false,
+            options: OllamaOptions {
+                num_ctx: profile.context_window_tokens,
+                num_predict: self.config.llm_max_tokens as i32,
+            },
         };
 
         let response = self
@@ -62,23 +69,13 @@ impl LlmClient {
     }
 
     async fn generate_openrouter(&self, model: &str, prompt: &str) -> Result<String> {
-        let api_key = self
-            .config
-            .openrouter_api_key
-            .as_deref()
-            .ok_or_else(|| anyhow!("RUSTOPEDIA_OPENROUTER_API_KEY is required for openrouter provider"))?;
+        let api_key = self.config.openrouter_api_key.as_deref().ok_or_else(|| {
+            anyhow!("RUSTOPEDIA_OPENROUTER_API_KEY is required for openrouter provider")
+        })?;
 
         let url = format!(
             "{}/chat/completions",
             self.config.openrouter_base_url.trim_end_matches('/')
-        );
-
-        let mut headers = HeaderMap::new();
-        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-        headers.insert(
-            AUTHORIZATION,
-            HeaderValue::from_str(&format!("Bearer {api_key}"))
-                .context("failed to build OpenRouter authorization header")?,
         );
 
         let request = OpenRouterChatRequest {
@@ -87,12 +84,13 @@ impl LlmClient {
                 role: "user",
                 content: prompt,
             }],
+            max_tokens: self.config.llm_max_tokens,
         };
 
         let response = self
             .http_client
             .post(url)
-            .headers(headers)
+            .bearer_auth(api_key)
             .json(&request)
             .send()
             .await
@@ -154,6 +152,13 @@ struct OllamaGenerateRequest<'a> {
     model: &'a str,
     prompt: &'a str,
     stream: bool,
+    options: OllamaOptions,
+}
+
+#[derive(Serialize)]
+struct OllamaOptions {
+    num_ctx: usize,
+    num_predict: i32,
 }
 
 #[derive(Deserialize)]
@@ -165,6 +170,7 @@ struct OllamaGenerateResponse {
 struct OpenRouterChatRequest<'a> {
     model: &'a str,
     messages: Vec<OpenRouterMessage<'a>>,
+    max_tokens: u32,
 }
 
 #[derive(Serialize)]

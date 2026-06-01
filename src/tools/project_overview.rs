@@ -53,7 +53,10 @@ fn discover_seed_files(project_root: &Path) -> BTreeSet<PathBuf> {
         .collect()
 }
 
-fn discover_module_files(project_root: &Path, seed_files: &BTreeSet<PathBuf>) -> Result<BTreeSet<PathBuf>> {
+fn discover_module_files(
+    project_root: &Path,
+    seed_files: &BTreeSet<PathBuf>,
+) -> Result<BTreeSet<PathBuf>> {
     let module_decl = Regex::new(r"(?m)^\s*(?:pub\s+)?mod\s+([a-zA-Z0-9_]+)\s*;")
         .context("failed to compile module regex")?;
     let mut files = BTreeSet::new();
@@ -82,12 +85,15 @@ fn discover_module_files(project_root: &Path, seed_files: &BTreeSet<PathBuf>) ->
 }
 
 fn summarize_package(project_root: &Path) -> Result<String> {
-    let cargo_toml = fs::read_to_string(project_root.join("Cargo.toml"))
-        .context("failed to read Cargo.toml")?;
+    let cargo_toml =
+        fs::read_to_string(project_root.join("Cargo.toml")).context("failed to read Cargo.toml")?;
 
-    let package_name = extract_toml_value(&cargo_toml, "name").unwrap_or_else(|| "unknown".to_string());
-    let version = extract_toml_value(&cargo_toml, "version").unwrap_or_else(|| "unknown".to_string());
-    let edition = extract_toml_value(&cargo_toml, "edition").unwrap_or_else(|| "unknown".to_string());
+    let package_name =
+        extract_toml_value(&cargo_toml, "name").unwrap_or_else(|| "unknown".to_string());
+    let version =
+        extract_toml_value(&cargo_toml, "version").unwrap_or_else(|| "unknown".to_string());
+    let edition =
+        extract_toml_value(&cargo_toml, "edition").unwrap_or_else(|| "unknown".to_string());
 
     let dependencies = cargo_toml
         .lines()
@@ -189,8 +195,8 @@ fn summarize_file_role(project_root: &Path, path: &Path) -> Result<String> {
 }
 
 fn summarize_rust_file(path: &Path) -> Result<String> {
-    let content = fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
+    let content =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
 
     if let Some(doc) = first_doc_comment(&content) {
         return Ok(doc);
@@ -203,7 +209,10 @@ fn first_doc_comment(content: &str) -> Option<String> {
     let docs = content
         .lines()
         .map(str::trim)
-        .filter_map(|line| line.strip_prefix("//!").or_else(|| line.strip_prefix("///")))
+        .filter_map(|line| {
+            line.strip_prefix("//!")
+                .or_else(|| line.strip_prefix("///"))
+        })
         .map(str::trim)
         .filter(|line| !line.is_empty())
         .take(2)

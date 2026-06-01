@@ -5,12 +5,35 @@ use anyhow::{Context, Result, bail};
 use crate::config::AppConfig;
 
 pub async fn workspace_summary(config: &AppConfig) -> Result<String> {
-    let diagnostics = run_rust_analyzer(config, &["-q", "diagnostics", ".", "--severity", "warning"])
-        .await
-        .context("failed to gather rust-analyzer diagnostics")?;
-    let stats = run_rust_analyzer(config, &["-q", "analysis-stats", "."])
-        .await
-        .context("failed to gather rust-analyzer analysis stats")?;
+    let diagnostics = run_rust_analyzer(
+        config,
+        &[
+            "-q",
+            "diagnostics",
+            ".",
+            "--severity",
+            "warning",
+            "--disable-build-scripts",
+            "--disable-proc-macros",
+        ],
+        RustAnalyzerCommandKind::Diagnostics,
+    )
+    .await
+    .context("failed to gather rust-analyzer diagnostics")?;
+    let stats = run_rust_analyzer(
+        config,
+        &[
+            "-q",
+            "analysis-stats",
+            ".",
+            "--disable-build-scripts",
+            "--disable-proc-macros",
+            "--no-test",
+        ],
+        RustAnalyzerCommandKind::AnalysisStats,
+    )
+    .await
+    .context("failed to gather rust-analyzer analysis stats")?;
 
     let diagnostics_summary = summarize_diagnostics(&diagnostics);
     let stats_summary = summarize_stats(&stats);
@@ -21,24 +44,37 @@ pub async fn workspace_summary(config: &AppConfig) -> Result<String> {
     ))
 }
 
-async fn run_rust_analyzer(config: &AppConfig, args: &[&str]) -> Result<String> {
+#[derive(Clone, Copy)]
+enum RustAnalyzerCommandKind {
+    Diagnostics,
+    AnalysisStats,
+}
+
+async fn run_rust_analyzer(
+    config: &AppConfig,
+    args: &[&str],
+    command_kind: RustAnalyzerCommandKind,
+) -> Result<String> {
     let program = config.rust_analyzer_bin.clone();
     let project_root = config.project_root.clone();
     let timeout = config.rust_analyzer_timeout();
     let args_owned = args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>();
 
-    let output = tokio::time::timeout(timeout, tokio::task::spawn_blocking(move || {
-        Command::new(&program)
-            .args(&args_owned)
-            .current_dir(&project_root)
-            .output()
-    }))
+    let output = tokio::time::timeout(
+        timeout,
+        tokio::task::spawn_blocking(move || {
+            Command::new(&program)
+                .args(&args_owned)
+                .current_dir(&project_root)
+                .output()
+        }),
+    )
     .await
     .map_err(|_| anyhow::anyhow!("rust-analyzer timed out after {}s", timeout.as_secs()))?
     .context("failed to join rust-analyzer task")?
     .context("failed to spawn rust-analyzer command")?;
 
-    if !output.status.success() {
+    if !output.status.success() && !is_expected_diagnostics_exit(&output, command_kind) {
         bail!(
             "rust-analyzer command failed: {}",
             String::from_utf8_lossy(&output.stderr).trim()
@@ -52,6 +88,15 @@ async fn run_rust_analyzer(config: &AppConfig, args: &[&str]) -> Result<String> 
     }
 
     Ok(strip_control_noise(&text))
+}
+
+fn is_expected_diagnostics_exit(
+    output: &std::process::Output,
+    command_kind: RustAnalyzerCommandKind,
+) -> bool {
+    matches!(command_kind, RustAnalyzerCommandKind::Diagnostics)
+        && !output.stdout.is_empty()
+        && String::from_utf8_lossy(&output.stderr).contains("diagnostic error detected")
 }
 
 fn strip_control_noise(text: &str) -> String {

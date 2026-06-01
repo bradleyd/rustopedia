@@ -22,7 +22,8 @@ fn extract_docs_as_json(html: &str) -> serde_json::Value {
                     "type": "code",
                     "content": text
                 })
-            } else { // "p"
+            } else {
+                // "p"
                 serde_json::json!({
                     "type": "paragraph",
                     "content": text
@@ -42,7 +43,12 @@ fn build_url(crate_input: &str) -> String {
         let last = parts.last().unwrap_or(&"");
 
         if ["std", "core", "alloc"].contains(&crate_base) {
-            if last.chars().next().map(|c| c.is_lowercase()).unwrap_or(true) {
+            if last
+                .chars()
+                .next()
+                .map(|c| c.is_lowercase())
+                .unwrap_or(true)
+            {
                 format!(
                     "https://doc.rust-lang.org/{}/{}/index.html",
                     crate_base,
@@ -57,7 +63,12 @@ fn build_url(crate_input: &str) -> String {
                 )
             }
         } else {
-            format!("https://docs.rs/{}/latest/{}/?search={}", crate_base, crate_base, parts[1..].join("::"))
+            format!(
+                "https://docs.rs/{}/latest/{}/?search={}",
+                crate_base,
+                crate_base,
+                parts[1..].join("::")
+            )
         }
     } else {
         format!("https://docs.rs/{}/latest/{}/", crate_input, crate_input)

@@ -1,6 +1,11 @@
 # Compiled binaries
 /target/
 
+# Secrets / local environment overrides
+.env
+.env.*
+!.env.example
+
 # Database files
 *.sqlite3
 chroma_db/

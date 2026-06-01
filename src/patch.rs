@@ -1,0 +1,987 @@
+//! Patch format parser for edit-mode model output.
+//!
+//! Canonical format the model is asked to produce:
+//!
+//! ```text
+//! ```patch path=src/config.rs
+//! <<<SEARCH
+//! pub model_name: String,
+//! SEARCH>>>
+//! <<<REPLACE
+//! pub model_name: String,
+//! pub edit_model_name: String,
+//! REPLACE>>>
+//! ```
+//! ```
+//!
+//! For new files:
+//!
+//! ```text
+//! ```patch path=src/patch.rs new=true
+//! pub struct Patch { ... }
+//! ```
+//! ```
+//!
+//! Parsing is intentionally strict in this first pass so we can observe how
+//! often the model produces the canonical shape on its own. Forgiving
+//! parsing is a follow-up once we have real failure samples.
+
+use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Patch {
+    Modify {
+        path: String,
+        edits: Vec<SearchReplaceEdit>,
+    },
+    Create {
+        path: String,
+        content: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchReplaceEdit {
+    pub search: String,
+    pub replace: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PatchParseError {
+    pub message: String,
+    pub block_excerpt: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ParsedPatches {
+    pub patches: Vec<Patch>,
+    pub errors: Vec<PatchParseError>,
+}
+
+impl ParsedPatches {
+    pub fn is_empty(&self) -> bool {
+        self.patches.is_empty() && self.errors.is_empty()
+    }
+}
+
+pub fn parse(model_output: &str) -> ParsedPatches {
+    let mut result = ParsedPatches::default();
+    let normalized = model_output.replace("\r\n", "\n");
+
+    for block in extract_patch_blocks(&normalized) {
+        match parse_block(&block.header, &block.body) {
+            Ok(patch) => result.patches.push(patch),
+            Err(message) => result.errors.push(PatchParseError {
+                message,
+                block_excerpt: excerpt(&block.body),
+            }),
+        }
+    }
+
+    result
+}
+
+struct PatchBlock {
+    header: String,
+    body: String,
+}
+
+fn extract_patch_blocks(text: &str) -> Vec<PatchBlock> {
+    let mut blocks = Vec::new();
+    let mut remaining = text;
+
+    while let Some(start) = remaining.find("```patch") {
+        let after_fence = &remaining[start + "```patch".len()..];
+        let Some(header_end) = after_fence.find('\n') else {
+            break;
+        };
+        let header = after_fence[..header_end].trim().to_string();
+        let body_start = &after_fence[header_end + 1..];
+        let Some(body_end) = find_closing_fence(body_start) else {
+            break;
+        };
+        let body = body_start[..body_end].to_string();
+        blocks.push(PatchBlock { header, body });
+        let consumed = start + "```patch".len() + header_end + 1 + body_end + "```".len();
+        remaining = &remaining[consumed.min(remaining.len())..];
+    }
+
+    blocks
+}
+
+fn find_closing_fence(text: &str) -> Option<usize> {
+    let mut search_from = 0;
+    loop {
+        let rest = &text[search_from..];
+        let idx = rest.find("```")?;
+        let absolute = search_from + idx;
+        let at_line_start = absolute == 0 || text.as_bytes()[absolute - 1] == b'\n';
+        if at_line_start {
+            return Some(absolute);
+        }
+        search_from = absolute + 3;
+        if search_from >= text.len() {
+            return None;
+        }
+    }
+}
+
+fn parse_block(header: &str, body: &str) -> Result<Patch, String> {
+    let attrs = parse_header_attrs(header)?;
+    let path = attrs
+        .path
+        .ok_or_else(|| "patch block is missing path= attribute".to_string())?;
+
+    if attrs.is_new {
+        let content = strip_trailing_newline(body);
+        return Ok(Patch::Create {
+            path,
+            content: content.to_string(),
+        });
+    }
+
+    let edits = parse_search_replace_edits(body)?;
+    if edits.is_empty() {
+        return Err(
+            "patch block has no SEARCH/REPLACE pairs and is not marked new=true".to_string(),
+        );
+    }
+
+    Ok(Patch::Modify { path, edits })
+}
+
+#[derive(Default)]
+struct HeaderAttrs {
+    path: Option<String>,
+    is_new: bool,
+}
+
+fn parse_header_attrs(header: &str) -> Result<HeaderAttrs, String> {
+    let mut attrs = HeaderAttrs::default();
+    for token in header.split_whitespace() {
+        if let Some((key, value)) = token.split_once('=') {
+            match key {
+                "path" => {
+                    let cleaned = value.trim_matches(|c: char| c == '"' || c == '\'');
+                    if cleaned.is_empty() {
+                        return Err("patch header has empty path=".to_string());
+                    }
+                    attrs.path = Some(normalize_path(cleaned));
+                }
+                "new" => {
+                    attrs.is_new = matches!(value.to_ascii_lowercase().as_str(), "true" | "1");
+                }
+                other => {
+                    return Err(format!("unknown patch header attribute '{other}'"));
+                }
+            }
+        } else if token == "new" {
+            attrs.is_new = true;
+        } else {
+            return Err(format!("unexpected token in patch header: '{token}'"));
+        }
+    }
+    Ok(attrs)
+}
+
+fn normalize_path(raw: &str) -> String {
+    raw.trim_start_matches("./").to_string()
+}
+
+fn parse_search_replace_edits(body: &str) -> Result<Vec<SearchReplaceEdit>, String> {
+    let mut edits = Vec::new();
+    let lines: Vec<&str> = body.lines().collect();
+    let mut i = 0;
+
+    while i < lines.len() {
+        let line = lines[i].trim_end();
+
+        if line.trim().is_empty() {
+            i += 1;
+            continue;
+        }
+
+        if line.trim() != "<<<SEARCH" {
+            return Err(format!(
+                "expected '<<<SEARCH' on its own line, got: '{}'",
+                lines[i]
+            ));
+        }
+
+        i += 1;
+        let search_start = i;
+        while i < lines.len() && !is_block_close_marker(lines[i]) {
+            i += 1;
+        }
+        if i >= lines.len() {
+            return Err("SEARCH block was not closed with 'SEARCH>>>'".to_string());
+        }
+        if lines[i].trim() == "REPLACE>>>" {
+            eprintln!(
+                "[parser warning] SEARCH block closed with 'REPLACE>>>' instead of 'SEARCH>>>' (forgiving recovery applied)"
+            );
+        }
+        let search = join_block(&lines[search_start..i]);
+        i += 1;
+
+        while i < lines.len() && lines[i].trim().is_empty() {
+            i += 1;
+        }
+        if i >= lines.len() || lines[i].trim() != "<<<REPLACE" {
+            return Err("expected '<<<REPLACE' after SEARCH close marker".to_string());
+        }
+        i += 1;
+        let replace_start = i;
+        while i < lines.len() && !is_block_close_marker(lines[i]) {
+            i += 1;
+        }
+        if i >= lines.len() {
+            return Err("REPLACE block was not closed with 'REPLACE>>>'".to_string());
+        }
+        if lines[i].trim() == "SEARCH>>>" {
+            eprintln!(
+                "[parser warning] REPLACE block closed with 'SEARCH>>>' instead of 'REPLACE>>>' (forgiving recovery applied)"
+            );
+        }
+        let replace = join_block(&lines[replace_start..i]);
+        i += 1;
+
+        edits.push(SearchReplaceEdit { search, replace });
+    }
+
+    Ok(edits)
+}
+
+fn is_block_close_marker(line: &str) -> bool {
+    matches!(line.trim(), "SEARCH>>>" | "REPLACE>>>")
+}
+
+fn join_block(lines: &[&str]) -> String {
+    lines.join("\n")
+}
+
+fn strip_trailing_newline(text: &str) -> &str {
+    text.strip_suffix('\n').unwrap_or(text)
+}
+
+fn excerpt(body: &str) -> String {
+    let first_line = body.lines().next().unwrap_or("").trim();
+    let cleaned: String = first_line.chars().take(80).collect();
+    if first_line.chars().count() > 80 {
+        format!("{cleaned}…")
+    } else {
+        cleaned
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AnchorStatus {
+    Ok,
+    NotFound,
+    Ambiguous(usize),
+    FileMissing,
+    FileReadError(String),
+}
+
+impl AnchorStatus {
+    pub fn label(&self) -> String {
+        match self {
+            Self::Ok => "[OK]".to_string(),
+            Self::NotFound => "[NOT FOUND in file]".to_string(),
+            Self::Ambiguous(n) => format!("[AMBIGUOUS: {n} matches]"),
+            Self::FileMissing => "[FILE MISSING]".to_string(),
+            Self::FileReadError(err) => format!("[FILE READ ERROR: {err}]"),
+        }
+    }
+
+    pub fn is_applicable(&self) -> bool {
+        matches!(self, Self::Ok)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedEdit {
+    pub edit: SearchReplaceEdit,
+    pub status: AnchorStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VerifiedPatch {
+    Modify {
+        path: String,
+        edits: Vec<VerifiedEdit>,
+    },
+    Create {
+        path: String,
+        content: String,
+        file_already_exists: bool,
+    },
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct VerifiedPatches {
+    pub patches: Vec<VerifiedPatch>,
+    pub errors: Vec<PatchParseError>,
+}
+
+impl VerifiedPatches {
+    pub fn is_empty(&self) -> bool {
+        self.patches.is_empty() && self.errors.is_empty()
+    }
+}
+
+pub fn verify(parsed: &ParsedPatches, project_root: &Path) -> VerifiedPatches {
+    let mut out = VerifiedPatches {
+        errors: parsed.errors.clone(),
+        ..Default::default()
+    };
+
+    for patch in &parsed.patches {
+        out.patches.push(verify_patch(patch, project_root));
+    }
+
+    out
+}
+
+fn verify_patch(patch: &Patch, project_root: &Path) -> VerifiedPatch {
+    match patch {
+        Patch::Modify { path, edits } => {
+            let full_path = resolve_path(project_root, path);
+            let file_content = match std::fs::read_to_string(&full_path) {
+                Ok(content) => Some(content),
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
+                Err(err) => {
+                    return VerifiedPatch::Modify {
+                        path: path.clone(),
+                        edits: edits
+                            .iter()
+                            .map(|edit| VerifiedEdit {
+                                edit: edit.clone(),
+                                status: AnchorStatus::FileReadError(err.to_string()),
+                            })
+                            .collect(),
+                    };
+                }
+            };
+
+            let verified = edits
+                .iter()
+                .map(|edit| {
+                    let status = match &file_content {
+                        None => AnchorStatus::FileMissing,
+                        Some(content) => anchor_status(content, &edit.search),
+                    };
+                    VerifiedEdit {
+                        edit: edit.clone(),
+                        status,
+                    }
+                })
+                .collect();
+
+            VerifiedPatch::Modify {
+                path: path.clone(),
+                edits: verified,
+            }
+        }
+        Patch::Create { path, content } => {
+            let full_path = resolve_path(project_root, path);
+            VerifiedPatch::Create {
+                path: path.clone(),
+                content: content.clone(),
+                file_already_exists: full_path.exists(),
+            }
+        }
+    }
+}
+
+fn anchor_status(file_content: &str, search: &str) -> AnchorStatus {
+    if search.is_empty() {
+        return AnchorStatus::NotFound;
+    }
+    let count = file_content.matches(search).count();
+    match count {
+        0 => AnchorStatus::NotFound,
+        1 => AnchorStatus::Ok,
+        n => AnchorStatus::Ambiguous(n),
+    }
+}
+
+fn resolve_path(project_root: &Path, relative: &str) -> PathBuf {
+    project_root.join(relative)
+}
+
+pub fn render_preview(verified: &VerifiedPatches) -> Option<String> {
+    if verified.is_empty() {
+        return None;
+    }
+
+    let mut sections = Vec::new();
+    sections.push("--- Planned Patches (dry-run, no files written) ---".to_string());
+
+    let mut applicable = 0usize;
+    let mut blocked = 0usize;
+    for patch in &verified.patches {
+        match patch {
+            VerifiedPatch::Modify { edits, .. } => {
+                for edit in edits {
+                    if edit.status.is_applicable() {
+                        applicable += 1;
+                    } else {
+                        blocked += 1;
+                    }
+                }
+            }
+            VerifiedPatch::Create {
+                file_already_exists,
+                ..
+            } => {
+                if *file_already_exists {
+                    blocked += 1;
+                } else {
+                    applicable += 1;
+                }
+            }
+        }
+    }
+
+    sections.push(format!(
+        "Summary: {applicable} edit(s) would apply cleanly, {blocked} blocked"
+    ));
+
+    for (idx, patch) in verified.patches.iter().enumerate() {
+        sections.push(render_verified_patch(idx + 1, patch));
+    }
+
+    if !verified.errors.is_empty() {
+        sections.push("--- Patch Parse Errors ---".to_string());
+        for error in &verified.errors {
+            sections.push(format!("- {} (near: '{}')", error.message, error.block_excerpt));
+        }
+    }
+
+    Some(sections.join("\n\n"))
+}
+
+const PLACEHOLDER_PATTERNS: &[&str] = &[
+    "// existing fields",
+    "// existing implementation",
+    "// existing methods",
+    "// existing variants",
+    "// rest unchanged",
+    "// other code",
+    "// snip",
+    "// ...",
+    "/* existing",
+];
+
+pub fn count_placeholder_hits(verified: &VerifiedPatches) -> usize {
+    let mut hits = 0;
+    for patch in &verified.patches {
+        if let VerifiedPatch::Modify { edits, .. } = patch {
+            for edit in edits {
+                if PLACEHOLDER_PATTERNS
+                    .iter()
+                    .any(|p| edit.edit.search.contains(p))
+                {
+                    hits += 1;
+                }
+            }
+        }
+    }
+    hits
+}
+
+fn render_verified_patch(index: usize, patch: &VerifiedPatch) -> String {
+    match patch {
+        VerifiedPatch::Modify { path, edits } => {
+            let mut lines = vec![format!("[{index}] modify {path} ({} edit(s))", edits.len())];
+            for (edit_idx, verified) in edits.iter().enumerate() {
+                lines.push(format!(
+                    "  edit {} of {}: {}",
+                    edit_idx + 1,
+                    edits.len(),
+                    verified.status.label()
+                ));
+                for line in verified.edit.search.lines() {
+                    lines.push(format!("    - {line}"));
+                }
+                for line in verified.edit.replace.lines() {
+                    lines.push(format!("    + {line}"));
+                }
+            }
+            lines.join("\n")
+        }
+        VerifiedPatch::Create {
+            path,
+            content,
+            file_already_exists,
+        } => {
+            let line_count = content.lines().count();
+            let preview_limit = 12;
+            let status = if *file_already_exists {
+                "[BLOCKED: file already exists]"
+            } else {
+                "[OK]"
+            };
+            let mut lines = vec![format!(
+                "[{index}] create {path} ({line_count} line(s)) {status}"
+            )];
+            for line in content.lines().take(preview_limit) {
+                lines.push(format!("    + {line}"));
+            }
+            if line_count > preview_limit {
+                lines.push(format!(
+                    "    + … ({} more line(s) omitted)",
+                    line_count - preview_limit
+                ));
+            }
+            lines.join("\n")
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_canonical_single_edit() {
+        let input = r#"
+Some prose here.
+
+```patch path=src/config.rs
+<<<SEARCH
+pub model_name: String,
+SEARCH>>>
+<<<REPLACE
+pub model_name: String,
+pub edit_model_name: String,
+REPLACE>>>
+```
+
+Trailing prose.
+"#;
+
+        let parsed = parse(input);
+        assert!(parsed.errors.is_empty(), "errors: {:?}", parsed.errors);
+        assert_eq!(parsed.patches.len(), 1);
+
+        match &parsed.patches[0] {
+            Patch::Modify { path, edits } => {
+                assert_eq!(path, "src/config.rs");
+                assert_eq!(edits.len(), 1);
+                assert_eq!(edits[0].search, "pub model_name: String,");
+                assert_eq!(
+                    edits[0].replace,
+                    "pub model_name: String,\npub edit_model_name: String,"
+                );
+            }
+            other => panic!("expected Modify, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_multiple_edits_in_one_block() {
+        let input = r#"
+```patch path=src/foo.rs
+<<<SEARCH
+let a = 1;
+SEARCH>>>
+<<<REPLACE
+let a = 2;
+REPLACE>>>
+
+<<<SEARCH
+let b = 3;
+SEARCH>>>
+<<<REPLACE
+let b = 4;
+REPLACE>>>
+```
+"#;
+
+        let parsed = parse(input);
+        assert!(parsed.errors.is_empty());
+        assert_eq!(parsed.patches.len(), 1);
+        match &parsed.patches[0] {
+            Patch::Modify { edits, .. } => assert_eq!(edits.len(), 2),
+            other => panic!("expected Modify, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_new_file_block() {
+        let input = r#"
+```patch path=src/patch.rs new=true
+pub struct Patch {}
+REPLACE>>>
+```
+"#;
+        let parsed = parse(input);
+        assert!(parsed.errors.is_empty());
+        assert_eq!(parsed.patches.len(), 1);
+        match &parsed.patches[0] {
+            Patch::Create { path, content } => {
+                assert_eq!(path, "src/patch.rs");
+                assert_eq!(content, "pub struct Patch {}\nREPLACE>>>");
+            }
+            other => panic!("expected Create, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn normalizes_leading_dot_slash_in_path() {
+        let input = r#"
+```patch path=./src/lib.rs
+<<<SEARCH
+x
+SEARCH>>>
+<<<REPLACE
+y
+REPLACE>>>
+```
+"#;
+        let parsed = parse(input);
+        assert!(parsed.errors.is_empty());
+        match &parsed.patches[0] {
+            Patch::Modify { path, .. } => assert_eq!(path, "src/lib.rs"),
+            _ => panic!("expected Modify"),
+        }
+    }
+
+    #[test]
+    fn reports_error_for_missing_path() {
+        let input = r#"
+```patch
+<<<SEARCH
+x
+SEARCH>>>
+<<<REPLACE
+y
+REPLACE>>>
+```
+"#;
+        let parsed = parse(input);
+        assert_eq!(parsed.patches.len(), 0);
+        assert_eq!(parsed.errors.len(), 1);
+        assert!(parsed.errors[0].message.contains("path"));
+    }
+
+    #[test]
+    fn reports_error_for_unclosed_search() {
+        let input = r#"
+```patch path=src/foo.rs
+<<<SEARCH
+x
+<<<REPLACE
+y
+REPLACE>>>
+```
+"#;
+        let parsed = parse(input);
+        assert_eq!(parsed.patches.len(), 0);
+        assert_eq!(parsed.errors.len(), 1);
+        assert!(parsed.errors[0].message.contains("SEARCH"));
+    }
+
+    #[test]
+    fn ignores_text_with_no_patch_blocks() {
+        let parsed = parse("Just a prose answer, no patches here.");
+        assert!(parsed.is_empty());
+    }
+
+    struct TempRoot {
+        path: PathBuf,
+    }
+
+    impl TempRoot {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "rustopedia_patch_test_{}_{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            std::fs::create_dir_all(&path).unwrap();
+            Self { path }
+        }
+
+        fn write(&self, relative: &str, content: &str) {
+            let full = self.path.join(relative);
+            if let Some(parent) = full.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            std::fs::write(full, content).unwrap();
+        }
+    }
+
+    impl Drop for TempRoot {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+
+    #[test]
+    fn render_preview_returns_none_for_empty_verified() {
+        let verified = VerifiedPatches::default();
+        assert!(render_preview(&verified).is_none());
+    }
+
+    #[test]
+    fn verify_marks_present_anchor_ok() {
+        let root = TempRoot::new();
+        root.write("src/foo.rs", "let a = 1;\nlet b = 2;\n");
+
+        let parsed = ParsedPatches {
+            patches: vec![Patch::Modify {
+                path: "src/foo.rs".to_string(),
+                edits: vec![SearchReplaceEdit {
+                    search: "let a = 1;".to_string(),
+                    replace: "let a = 99;".to_string(),
+                }],
+            }],
+            errors: vec![],
+        };
+
+        let verified = verify(&parsed, &root.path);
+        match &verified.patches[0] {
+            VerifiedPatch::Modify { edits, .. } => {
+                assert_eq!(edits[0].status, AnchorStatus::Ok);
+            }
+            _ => panic!("expected Modify"),
+        }
+    }
+
+    #[test]
+    fn verify_marks_missing_anchor_not_found() {
+        let root = TempRoot::new();
+        root.write("src/foo.rs", "let a = 1;\n");
+
+        let parsed = ParsedPatches {
+            patches: vec![Patch::Modify {
+                path: "src/foo.rs".to_string(),
+                edits: vec![SearchReplaceEdit {
+                    search: "let nonexistent = 0;".to_string(),
+                    replace: "x".to_string(),
+                }],
+            }],
+            errors: vec![],
+        };
+
+        let verified = verify(&parsed, &root.path);
+        match &verified.patches[0] {
+            VerifiedPatch::Modify { edits, .. } => {
+                assert_eq!(edits[0].status, AnchorStatus::NotFound);
+            }
+            _ => panic!("expected Modify"),
+        }
+    }
+
+    #[test]
+    fn verify_marks_ambiguous_anchor() {
+        let root = TempRoot::new();
+        root.write(
+            "src/foo.rs",
+            "let a = 1;\nlet b = 2;\nlet a = 1;\n",
+        );
+
+        let parsed = ParsedPatches {
+            patches: vec![Patch::Modify {
+                path: "src/foo.rs".to_string(),
+                edits: vec![SearchReplaceEdit {
+                    search: "let a = 1;".to_string(),
+                    replace: "let a = 99;".to_string(),
+                }],
+            }],
+            errors: vec![],
+        };
+
+        let verified = verify(&parsed, &root.path);
+        match &verified.patches[0] {
+            VerifiedPatch::Modify { edits, .. } => {
+                assert_eq!(edits[0].status, AnchorStatus::Ambiguous(2));
+            }
+            _ => panic!("expected Modify"),
+        }
+    }
+
+    #[test]
+    fn verify_marks_missing_file() {
+        let root = TempRoot::new();
+
+        let parsed = ParsedPatches {
+            patches: vec![Patch::Modify {
+                path: "src/missing.rs".to_string(),
+                edits: vec![SearchReplaceEdit {
+                    search: "anything".to_string(),
+                    replace: "else".to_string(),
+                }],
+            }],
+            errors: vec![],
+        };
+
+        let verified = verify(&parsed, &root.path);
+        match &verified.patches[0] {
+            VerifiedPatch::Modify { edits, .. } => {
+                assert_eq!(edits[0].status, AnchorStatus::FileMissing);
+            }
+            _ => panic!("expected Modify"),
+        }
+    }
+
+    #[test]
+    fn verify_flags_create_when_file_already_exists() {
+        let root = TempRoot::new();
+        root.write("src/existing.rs", "already here\n");
+
+        let parsed = ParsedPatches {
+            patches: vec![
+                Patch::Create {
+                    path: "src/existing.rs".to_string(),
+                    content: "new content".to_string(),
+                },
+                Patch::Create {
+                    path: "src/brand_new.rs".to_string(),
+                    content: "fresh".to_string(),
+                },
+            ],
+            errors: vec![],
+        };
+
+        let verified = verify(&parsed, &root.path);
+        match &verified.patches[0] {
+            VerifiedPatch::Create {
+                file_already_exists, ..
+            } => assert!(file_already_exists),
+            _ => panic!("expected Create"),
+        }
+        match &verified.patches[1] {
+            VerifiedPatch::Create {
+                file_already_exists, ..
+            } => assert!(!file_already_exists),
+            _ => panic!("expected Create"),
+        }
+    }
+
+    #[test]
+    fn render_preview_includes_anchor_status_and_summary() {
+        let root = TempRoot::new();
+        root.write("src/foo.rs", "let a = 1;\n");
+
+        let parsed = ParsedPatches {
+            patches: vec![
+                Patch::Modify {
+                    path: "src/foo.rs".to_string(),
+                    edits: vec![
+                        SearchReplaceEdit {
+                            search: "let a = 1;".to_string(),
+                            replace: "let a = 2;".to_string(),
+                        },
+                        SearchReplaceEdit {
+                            search: "let nonexistent = 0;".to_string(),
+                            replace: "x".to_string(),
+                        },
+                    ],
+                },
+                Patch::Create {
+                    path: "src/new.rs".to_string(),
+                    content: "pub fn hi() {}\n".to_string(),
+                },
+            ],
+            errors: vec![PatchParseError {
+                message: "expected '<<<SEARCH'".to_string(),
+                block_excerpt: "garbled block".to_string(),
+            }],
+        };
+
+        let verified = verify(&parsed, &root.path);
+        let rendered = render_preview(&verified).expect("expected preview");
+        assert!(rendered.contains("[OK]"));
+        assert!(rendered.contains("[NOT FOUND in file]"));
+        assert!(rendered.contains("modify src/foo.rs"));
+        assert!(rendered.contains("create src/new.rs"));
+        assert!(rendered.contains("Summary: 2 edit(s) would apply cleanly, 1 blocked"));
+        assert!(rendered.contains("Patch Parse Errors"));
+    }
+
+    #[test]
+    fn forgiving_parser_accepts_replace_marker_closing_replace_block() {
+        // Real Ollama qwen2.5-coder:14b failure mode: model emitted SEARCH>>>
+        // to close the REPLACE block instead of REPLACE>>>.
+        let input = r#"
+```patch path=src/foo.rs
+<<<SEARCH
+let a = 1;
+SEARCH>>>
+<<<REPLACE
+let a = 2;
+SEARCH>>>
+```
+"#;
+        let parsed = parse(input);
+        assert!(parsed.errors.is_empty(), "errors: {:?}", parsed.errors);
+        assert_eq!(parsed.patches.len(), 1);
+        match &parsed.patches[0] {
+            Patch::Modify { edits, .. } => {
+                assert_eq!(edits[0].search, "let a = 1;");
+                assert_eq!(edits[0].replace, "let a = 2;");
+            }
+            _ => panic!("expected Modify"),
+        }
+    }
+
+    #[test]
+    fn forgiving_parser_accepts_replace_marker_closing_search_block() {
+        // Symmetric case: model used REPLACE>>> to close the SEARCH block.
+        let input = r#"
+```patch path=src/foo.rs
+<<<SEARCH
+let a = 1;
+REPLACE>>>
+<<<REPLACE
+let a = 2;
+REPLACE>>>
+```
+"#;
+        let parsed = parse(input);
+        assert!(parsed.errors.is_empty(), "errors: {:?}", parsed.errors);
+        assert_eq!(parsed.patches.len(), 1);
+        match &parsed.patches[0] {
+            Patch::Modify { edits, .. } => {
+                assert_eq!(edits[0].search, "let a = 1;");
+                assert_eq!(edits[0].replace, "let a = 2;");
+            }
+            _ => panic!("expected Modify"),
+        }
+    }
+
+    #[test]
+    fn parses_multiple_blocks_across_files() {
+        let input = r#"
+```patch path=src/a.rs
+<<<SEARCH
+1
+SEARCH>>>
+<<<REPLACE
+2
+REPLACE>>>
+```
+
+Some text.
+
+```patch path=src/b.rs
+<<<SEARCH
+3
+SEARCH>>>
+<<<REPLACE
+4
+REPLACE>>>
+```
+"#;
+        let parsed = parse(input);
+        assert!(parsed.errors.is_empty());
+        assert_eq!(parsed.patches.len(), 2);
+    }
+}

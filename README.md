@@ -5,10 +5,12 @@ Local Rust coding assistant with explicit `ask`, `review`, and `edit` modes.
 ## Current Architecture
 - Rust CLI chat loop in `src/main.rs`
 - Runtime modes are managed in `src/runtime.rs`
-- `review` mode is local-first and starts from rust-analyzer workspace context
-- Planner/tool routing is currently used for non-review flows
+- runtime routing is Rust-intent-first rather than planner-driven
+- `review` and `edit` are local-first and prioritize workspace/compiler/lint/test evidence
 - Vector retrieval currently uses Qdrant HTTP (`src/tools/qdrant_client.rs`)
 - Query embeddings are still generated via `rag/embed_query.py` for Qdrant-backed retrieval
+- Mode contracts and example prompts live in `MODES.md`
+- Prompt/context layering design lives in `MEMORY_MAPPER.md`
 
 ## Setup
 
@@ -62,7 +64,8 @@ Useful commands in the chat:
 Environment variables:
 - `RUSTOPEDIA_LLM_PROVIDER` (`ollama` or `openrouter`, default: `ollama`)
 - `RUSTOPEDIA_MODEL_NAME` (default answer model: `deepseek-coder-v2:latest`)
-- `RUSTOPEDIA_PLANNER_MODEL_NAME` (default: same as `RUSTOPEDIA_MODEL_NAME`)
+- `RUSTOPEDIA_REVIEW_MODEL_NAME` (default: same as `RUSTOPEDIA_MODEL_NAME`)
+- `RUSTOPEDIA_EDIT_MODEL_NAME` (default: same as `RUSTOPEDIA_MODEL_NAME`)
 - `RUSTOPEDIA_OLLAMA_BASE_URL` (default: `http://localhost:11434`)
 - `RUSTOPEDIA_OPENROUTER_BASE_URL` (default: `https://openrouter.ai/api/v1`)
 - `RUSTOPEDIA_OPENROUTER_API_KEY` (required when provider is `openrouter`)
@@ -79,6 +82,6 @@ Environment variables:
 
 ## Notes
 - `rag/rag_server.py` is a legacy Chroma path and is not used by the current Rust runtime.
-- Planner/output parsing and orchestration are being actively cleaned up on branch `improve-routing-cleanup`.
+- External crate/docs/example lookup is now a fallback for Rust questions, not the default runtime path.
 - Startup now validates configuration and exits early with an error if required values are missing.
-- `review` mode does not require Qdrant and skips planner/tool routing in favor of local workspace analysis.
+- `review` mode does not require Qdrant and stays local to the Rust workspace analysis path.

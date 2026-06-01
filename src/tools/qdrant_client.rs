@@ -9,7 +9,10 @@ pub struct QdrantClient {
 
 impl QdrantClient {
     pub fn new(base_url: &str, client: reqwest::Client) -> Self {
-        Self { client, base_url: base_url.to_string() }
+        Self {
+            client,
+            base_url: base_url.to_string(),
+        }
     }
 
     pub async fn search_collection(
@@ -47,48 +50,18 @@ impl QdrantClient {
                         .unwrap_or("")
                         .to_string();
 
-                    let score = result["score"].as_f64().unwrap_or(0.0);
-
-                    results.push(SearchResult {
-                        content,
-                        score,
-                        metadata: payload.clone(),
-                    });
+                    results.push(SearchResult { content });
                 }
             }
         }
 
         Ok(results)
     }
-
-    pub async fn list_collections(&self) -> Result<Vec<String>, Box<dyn Error>> {
-        let response = self
-            .client
-            .get(format!("{}/collections", self.base_url))
-            .send()
-            .await?;
-        let collections: Value = response.json().await?;
-
-        let mut collection_names = Vec::new();
-        if let Some(result) = collections["result"].as_object() {
-            if let Some(collections_array) = result["collections"].as_array() {
-                for collection in collections_array {
-                    if let Some(name) = collection["name"].as_str() {
-                        collection_names.push(name.to_string());
-                    }
-                }
-            }
-        }
-
-        Ok(collection_names)
-    }
 }
 
 #[derive(Debug, Clone)]
 pub struct SearchResult {
     pub content: String,
-    pub score: f64,
-    pub metadata: serde_json::Map<String, Value>,
 }
 
 // Main function for RAG queries - similar to your current call_rag function
@@ -132,15 +105,23 @@ async fn generate_embedding(text: &str) -> Result<Vec<f32>, Box<dyn Error>> {
     let config = crate::config::AppConfig::from_env();
     let text_owned = text.to_string();
     let timeout = config.embed_query_timeout();
-    let output = tokio::time::timeout(timeout, tokio::task::spawn_blocking(move || {
-        Command::new(&config.python_bin)
-            .arg(&config.embed_query_script)
-            .arg(text_owned)
-            .current_dir(&config.project_root)
-            .output()
-    }))
+    let output = tokio::time::timeout(
+        timeout,
+        tokio::task::spawn_blocking(move || {
+            Command::new(&config.python_bin)
+                .arg(&config.embed_query_script)
+                .arg(text_owned)
+                .current_dir(&config.project_root)
+                .output()
+        }),
+    )
     .await
-    .map_err(|_| format!("embedding script timed out after {}", format_duration(timeout)))???;
+    .map_err(|_| {
+        format!(
+            "embedding script timed out after {}",
+            format_duration(timeout)
+        )
+    })???;
 
     if !output.status.success() {
         return Err(format!(
@@ -165,6 +146,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    #[ignore = "requires a local Qdrant instance and seeded collection"]
     async fn test_qdrant_search() {
         let config = crate::config::AppConfig::from_env();
         let client = QdrantClient::new(
@@ -179,7 +161,7 @@ mod tests {
             Ok(results) => {
                 println!("✅ Qdrant search works! Found {} results", results.len());
                 for result in results {
-                    println!("Content: {}, Score: {}", result.content, result.score);
+                    println!("Content: {}", result.content);
                 }
             }
             Err(e) => {

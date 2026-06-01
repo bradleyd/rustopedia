@@ -1,6 +1,12 @@
+pub mod cargo;
 pub mod crate_search;
+pub mod diff;
 pub mod docs;
+pub mod edit_context;
+pub mod files;
 pub mod github;
+pub mod literal_evidence;
+pub mod local_context;
 pub mod project_overview;
 pub mod qdrant_client;
 pub mod rust_analyzer;
