@@ -1,6 +1,7 @@
 pub mod cargo;
 pub mod crate_search;
 pub mod diff;
+pub mod doc_targets;
 pub mod docs;
 pub mod edit_context;
 pub mod files;

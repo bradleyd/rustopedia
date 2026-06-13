@@ -95,16 +95,10 @@ fn summarize_package(project_root: &Path) -> Result<String> {
     let edition =
         extract_toml_value(&cargo_toml, "edition").unwrap_or_else(|| "unknown".to_string());
 
-    let dependencies = cargo_toml
-        .lines()
-        .skip_while(|line| line.trim() != "[dependencies]")
-        .skip(1)
-        .take_while(|line| !line.trim().starts_with('['))
-        .filter_map(|line| line.split('=').next().map(str::trim))
-        .filter(|name| !name.is_empty())
+    let dependencies: Vec<String> = parse_dependency_names(&cargo_toml)
+        .into_iter()
         .take(8)
-        .map(str::to_string)
-        .collect::<Vec<_>>();
+        .collect();
 
     let deps = if dependencies.is_empty() {
         "none".to_string()
@@ -115,6 +109,23 @@ fn summarize_package(project_root: &Path) -> Result<String> {
     Ok(format!(
         "Package: {package_name} v{version} (edition {edition})\nPrimary dependencies: {deps}"
     ))
+}
+
+/// Parse the crate names listed under `[dependencies]` in a Cargo.toml string.
+///
+/// Returns every dependency name (uncapped) in declaration order. Scoped to the
+/// `[dependencies]` table only; `[dev-dependencies]`/`[build-dependencies]` are an
+/// extension point if edit-mode targeting ever needs them.
+pub fn parse_dependency_names(cargo_toml: &str) -> Vec<String> {
+    cargo_toml
+        .lines()
+        .skip_while(|line| line.trim() != "[dependencies]")
+        .skip(1)
+        .take_while(|line| !line.trim().starts_with('['))
+        .filter_map(|line| line.split('=').next().map(str::trim))
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 fn summarize_readme(project_root: &Path) -> Result<String> {
@@ -263,4 +274,43 @@ fn extract_toml_value(toml: &str, key: &str) -> Option<String> {
         .and_then(|line| line.split('=').nth(1))
         .map(str::trim)
         .map(|value| value.trim_matches('"').to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_dependency_names_returns_all_uncapped() {
+        let cargo = "[package]\nname = \"x\"\n\n[dependencies]\na = \"1\"\nb = \"1\"\nc = \"1\"\nd = \"1\"\ne = \"1\"\nf = \"1\"\ng = \"1\"\nh = \"1\"\ni = \"1\"\n";
+        let deps = parse_dependency_names(cargo);
+        assert_eq!(deps, vec!["a", "b", "c", "d", "e", "f", "g", "h", "i"]);
+    }
+
+    #[test]
+    fn parse_dependency_names_stops_at_next_section() {
+        let cargo = "[dependencies]\nserde = \"1\"\ntokio = \"1\"\n\n[dev-dependencies]\nproptest = \"1\"\n";
+        assert_eq!(parse_dependency_names(cargo), vec!["serde", "tokio"]);
+    }
+
+    #[test]
+    fn parse_dependency_names_handles_table_form() {
+        let cargo = "[dependencies]\nserde = { version = \"1\", features = [\"derive\"] }\n";
+        assert_eq!(parse_dependency_names(cargo), vec!["serde"]);
+    }
+
+    #[test]
+    fn parse_dependency_names_empty_when_section_missing() {
+        let cargo = "[package]\nname = \"x\"\nversion = \"0.1.0\"\n";
+        assert!(parse_dependency_names(cargo).is_empty());
+    }
+
+    #[test]
+    fn summarize_package_still_caps_display_at_eight() {
+        // Faithful refactor: the human-facing summary remains capped even though the
+        // underlying parser is uncapped.
+        let cargo = "[dependencies]\na = \"1\"\nb = \"1\"\nc = \"1\"\nd = \"1\"\ne = \"1\"\nf = \"1\"\ng = \"1\"\nh = \"1\"\ni = \"1\"\n";
+        let display: Vec<String> = parse_dependency_names(cargo).into_iter().take(8).collect();
+        assert_eq!(display.len(), 8);
+    }
 }

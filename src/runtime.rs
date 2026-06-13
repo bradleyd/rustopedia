@@ -320,6 +320,11 @@ impl Runtime {
         let mut last_prompt_tokens: usize;
         let last_response: String;
         let mut prev_was_format_failure = false;
+        // Keep the best attempt across retries: a later iteration can degrade (prose
+        // drift, malformed patch) and must not overwrite a better earlier result.
+        let mut best_response: Option<String> = None;
+        let mut best_quality: i64 = i64::MIN;
+        let mut best_iteration: u32 = 0;
 
         loop {
             let synth_started = Instant::now();
@@ -352,8 +357,8 @@ impl Runtime {
             let project_root = std::path::Path::new(&self.config.project_root);
             let verified = crate::patch::verify(&parsed, project_root);
 
+            let (ok_now, blocked_now) = count_anchor_status(&verified);
             if self.config.debug {
-                let (ok_now, blocked_now) = count_anchor_status(&verified);
                 let placeholders_now = crate::patch::count_placeholder_hits(&verified);
                 eprintln!(
                     "[debug] retry_loop iter={} verified: patches={} errors={} edits_ok={} edits_blocked={} placeholders={}",
@@ -364,6 +369,13 @@ impl Runtime {
                     blocked_now,
                     placeholders_now
                 );
+            }
+
+            let quality = attempt_quality(ok_now, blocked_now, verified.errors.len());
+            if quality > best_quality {
+                best_quality = quality;
+                best_response = Some(response.clone());
+                best_iteration = iteration;
             }
 
             // Format errors trump every other retry kind. If the model
@@ -453,6 +465,10 @@ impl Runtime {
             if iteration < max_retries && all_applicable {
                 match self.validate_via_scratch(&verified).await {
                     Ok(None) => {
+                        // Compiles cleanly in the scratch worktree — definitively the
+                        // best possible attempt, regardless of prior scores.
+                        best_iteration = iteration;
+                        best_response = Some(response.clone());
                         last_response = response;
                         break;
                     }
@@ -485,9 +501,16 @@ impl Runtime {
             break;
         }
 
+        let chosen = best_response.unwrap_or(last_response);
+        if self.config.debug && best_iteration != iteration {
+            eprintln!(
+                "[debug] retry_loop emitting best attempt from iteration={} (final iteration={})",
+                best_iteration, iteration
+            );
+        }
         let response = self.append_edit_outputs(
             mode,
-            last_response,
+            chosen,
             model_name,
             total_generation_elapsed,
             turn_started.elapsed(),
@@ -579,7 +602,13 @@ impl Runtime {
 
         let route_started = Instant::now();
         let plan = self
-            .route_tools(query, mode, initial_intent, contextual_followup)
+            .route_tools(
+                query,
+                mode,
+                initial_intent,
+                contextual_followup,
+                &working_memory,
+            )
             .await;
         self.log_stage_timing("route", route_started.elapsed());
 
@@ -785,19 +814,90 @@ impl Runtime {
         mode: SessionMode,
         intent: RustIntent,
         contextual_followup: bool,
+        working_memory: &[WorkingMemoryItem],
     ) -> Vec<PlanStep> {
         println!("Stage: route ({})", mode.as_str());
         if contextual_followup {
             println!("Contextual follow-up detected; skipping external tool routing.");
             return Vec::new();
         }
-        let plan = generate_plan(query, mode, intent);
+        // Edit mode derives docs.rs lookups from the just-gathered workspace context;
+        // other modes use the static intent-based plan.
+        let plan = match mode {
+            SessionMode::Edit => self.derive_edit_doc_plan(query, working_memory),
+            _ => generate_plan(query, mode, intent),
+        };
         if plan.is_empty() {
             println!("Rust-first routing selected no external tools.");
         } else {
             println!("Rust-first plan {:?} for intent {}", plan, intent.as_str());
         }
         plan
+    }
+
+    /// Derive docs.rs lookups for an edit turn from the workspace context already
+    /// gathered in the analyze stage. Pure string processing — no LLM, no extra network
+    /// calls (the only fetch is the resulting `docs_agent` step in `execute_tools`).
+    fn derive_edit_doc_plan(
+        &self,
+        query: &str,
+        working_memory: &[WorkingMemoryItem],
+    ) -> Vec<PlanStep> {
+        let project_root = std::path::Path::new(&self.config.project_root);
+
+        // Distinct `.rs` files referenced by the edit excerpts (same collection shape as
+        // `file_skeletons`), re-read in full so the `use` parser sees imports.
+        let mut seen_paths: Vec<String> = Vec::new();
+        for item in working_memory {
+            if let WorkingMemoryItem::FileExcerpt(excerpt) = item
+                && excerpt.path.ends_with(".rs")
+                && !seen_paths.iter().any(|p| p == &excerpt.path)
+            {
+                seen_paths.push(excerpt.path.clone());
+            }
+        }
+        let sources: Vec<String> = seen_paths
+            .iter()
+            .filter_map(|relative| std::fs::read_to_string(project_root.join(relative)).ok())
+            .collect();
+        if sources.is_empty() {
+            return Vec::new();
+        }
+
+        let deps = match std::fs::read_to_string(project_root.join("Cargo.toml")) {
+            Ok(toml) => crate::tools::project_overview::parse_dependency_names(&toml),
+            Err(_) => Vec::new(),
+        };
+
+        let ranked = crate::tools::doc_targets::derive_targets(query, &sources, &deps);
+        let selected: Vec<String> = ranked
+            .iter()
+            .take(crate::tools::doc_targets::MAX_TARGETS)
+            .cloned()
+            .collect();
+
+        if selected.is_empty() {
+            return Vec::new();
+        }
+
+        let dropped = &ranked[selected.len()..];
+        println!(
+            "Edit doc-targets selected {:?}{}",
+            selected,
+            if dropped.is_empty() {
+                String::new()
+            } else {
+                format!(" (dropped {dropped:?})")
+            }
+        );
+
+        selected
+            .into_iter()
+            .map(|input| PlanStep {
+                tool: "docs_agent".to_string(),
+                input,
+            })
+            .collect()
     }
 
     async fn execute_tools(&self, plan: &[PlanStep]) -> Vec<WorkingMemoryItem> {
@@ -1664,6 +1764,13 @@ fn build_edit_run_summary(m: EditRunMetrics<'_>) -> String {
     )
 }
 
+/// Heuristic quality of an edit attempt, used to keep the best result across retries
+/// rather than emitting whatever the final (possibly degraded) iteration produced.
+/// Applicable patches dominate; blocked anchors and parse/verify errors subtract.
+fn attempt_quality(ok: usize, blocked: usize, errors: usize) -> i64 {
+    (ok as i64) * 100 - (blocked as i64) * 40 - (errors as i64) * 10
+}
+
 fn count_anchor_status(verified: &crate::patch::VerifiedPatches) -> (usize, usize) {
     let mut ok = 0usize;
     let mut blocked = 0usize;
@@ -1852,6 +1959,22 @@ fn trimmed_history(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn attempt_quality_prefers_applicable_patch_over_format_failure() {
+        // An applicable patch with a compile error still beats a parse failure with no
+        // patches — this is the regression that made retries emit a worse result.
+        let applicable_with_compile_error = attempt_quality(1, 0, 1); // iter 0
+        let format_failure = attempt_quality(0, 0, 1); // iter 2 (malformed)
+        assert!(applicable_with_compile_error > format_failure);
+    }
+
+    #[test]
+    fn attempt_quality_penalizes_blocked_and_errors() {
+        assert!(attempt_quality(2, 0, 0) > attempt_quality(2, 1, 0));
+        assert!(attempt_quality(1, 0, 0) > attempt_quality(1, 0, 3));
+        assert_eq!(attempt_quality(0, 0, 0), 0);
+    }
 
     fn subject(mode: SessionMode, intent: RustIntent, query: &str) -> SubjectAnchor {
         SubjectAnchor {
