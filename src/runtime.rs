@@ -371,7 +371,12 @@ impl Runtime {
                 );
             }
 
-            let quality = attempt_quality(ok_now, blocked_now, verified.errors.len());
+            let quality = attempt_quality(
+                verified.patches.len(),
+                ok_now,
+                blocked_now,
+                verified.errors.len(),
+            );
             if quality > best_quality {
                 best_quality = quality;
                 best_response = Some(response.clone());
@@ -1766,9 +1771,10 @@ fn build_edit_run_summary(m: EditRunMetrics<'_>) -> String {
 
 /// Heuristic quality of an edit attempt, used to keep the best result across retries
 /// rather than emitting whatever the final (possibly degraded) iteration produced.
-/// Applicable patches dominate; blocked anchors and parse/verify errors subtract.
-fn attempt_quality(ok: usize, blocked: usize, errors: usize) -> i64 {
-    (ok as i64) * 100 - (blocked as i64) * 40 - (errors as i64) * 10
+/// Applicable patches dominate; emitting *any* structured patch beats a format failure
+/// (no patch envelope at all); blocked anchors and parse/verify errors subtract.
+fn attempt_quality(patches: usize, ok: usize, blocked: usize, errors: usize) -> i64 {
+    (patches as i64) * 50 + (ok as i64) * 100 - (blocked as i64) * 40 - (errors as i64) * 10
 }
 
 fn count_anchor_status(verified: &crate::patch::VerifiedPatches) -> (usize, usize) {
@@ -1962,18 +1968,28 @@ mod tests {
 
     #[test]
     fn attempt_quality_prefers_applicable_patch_over_format_failure() {
-        // An applicable patch with a compile error still beats a parse failure with no
-        // patches — this is the regression that made retries emit a worse result.
-        let applicable_with_compile_error = attempt_quality(1, 0, 1); // iter 0
-        let format_failure = attempt_quality(0, 0, 1); // iter 2 (malformed)
+        // (patches, ok, blocked, errors). An applicable patch with a compile error still
+        // beats a parse failure with no patches — the regression that made retries emit a
+        // worse result.
+        let applicable_with_compile_error = attempt_quality(1, 1, 0, 1); // iter 0
+        let format_failure = attempt_quality(0, 0, 0, 1); // iter 2 (malformed)
         assert!(applicable_with_compile_error > format_failure);
     }
 
     #[test]
+    fn attempt_quality_prefers_parsed_patch_over_no_patch() {
+        // A parsed-but-anchor-blocked patch is closer to a usable edit than an empty
+        // format failure (the Strand-run case), so it must score higher.
+        let blocked_patch = attempt_quality(1, 0, 1, 0);
+        let format_failure = attempt_quality(0, 0, 0, 0);
+        assert!(blocked_patch > format_failure);
+    }
+
+    #[test]
     fn attempt_quality_penalizes_blocked_and_errors() {
-        assert!(attempt_quality(2, 0, 0) > attempt_quality(2, 1, 0));
-        assert!(attempt_quality(1, 0, 0) > attempt_quality(1, 0, 3));
-        assert_eq!(attempt_quality(0, 0, 0), 0);
+        assert!(attempt_quality(1, 2, 0, 0) > attempt_quality(1, 2, 1, 0));
+        assert!(attempt_quality(1, 1, 0, 0) > attempt_quality(1, 1, 0, 3));
+        assert_eq!(attempt_quality(0, 0, 0, 0), 0);
     }
 
     fn subject(mode: SessionMode, intent: RustIntent, query: &str) -> SubjectAnchor {
