@@ -125,6 +125,7 @@ For a brand-new file that does not exist yet, use this format:
 ```
 
 Rules:
+- Close each block with the literal tokens `SEARCH>>>` and `REPLACE>>>`, each alone on its own line. Do NOT use git-conflict-style markers (`<<<<<<<`, `=======`, `>>>>>>>`) or a bare `<<<` to separate or close blocks — the divider is `SEARCH>>>` then `<<<REPLACE`, and the closer is `REPLACE>>>`.
 - The text inside <<<SEARCH ... SEARCH>>> must match the file byte-for-byte, including every existing field, line, and comment. If the same text appears more than once in the file, widen the SEARCH block until it is unique.
 - Never write placeholder comments inside SEARCH or REPLACE blocks. Do not write `// existing fields`, `// ...`, `// rest unchanged`, `// snip`, `// other code`, or anything similar. Every line inside SEARCH must already appear in the file, and every line inside REPLACE must be the literal new content.
 - Prefer the smallest unique SEARCH block possible: typically 2-5 lines centered on the change point, not the entire enclosing struct, enum, impl, or function. To add a field at the end of a struct, anchor on the last existing field plus the closing `}` rather than reproducing the whole struct. To add a method to an impl block, anchor on the impl's closing `}` rather than reproducing every existing method. The REPLACE block should mirror the same lines plus only the new content.

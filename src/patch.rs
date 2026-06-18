@@ -194,57 +194,72 @@ fn parse_search_replace_edits(body: &str) -> Result<Vec<SearchReplaceEdit>, Stri
     let mut i = 0;
 
     while i < lines.len() {
-        let line = lines[i].trim_end();
-
-        if line.trim().is_empty() {
+        if lines[i].trim().is_empty() {
             i += 1;
             continue;
         }
 
-        if line.trim() != "<<<SEARCH" {
+        if !is_search_open(lines[i]) {
             return Err(format!(
                 "expected '<<<SEARCH' on its own line, got: '{}'",
                 lines[i]
             ));
         }
-
         i += 1;
+
+        // SEARCH body — ends at the search/replace boundary marker.
         let search_start = i;
-        while i < lines.len() && !is_block_close_marker(lines[i]) {
+        while i < lines.len() && !is_search_close(lines[i]) {
             i += 1;
         }
         if i >= lines.len() {
             return Err("SEARCH block was not closed with 'SEARCH>>>'".to_string());
         }
-        if lines[i].trim() == "REPLACE>>>" {
-            eprintln!(
-                "[parser warning] SEARCH block closed with 'REPLACE>>>' instead of 'SEARCH>>>' (forgiving recovery applied)"
-            );
-        }
         let search = join_block(&lines[search_start..i]);
-        i += 1;
 
-        while i < lines.len() && lines[i].trim().is_empty() {
+        // Consume the boundary. Canonical form is `SEARCH>>>` followed by a separate
+        // `<<<REPLACE`. Models trained on the git-conflict dialect collapse this into a
+        // bare `<<<REPLACE` divider with no `SEARCH>>>`; accept that too.
+        let boundary = lines[i].trim();
+        i += 1;
+        if boundary == "<<<REPLACE" {
+            eprintln!(
+                "[parser warning] SEARCH/REPLACE divider used a bare '<<<REPLACE' without a 'SEARCH>>>' close (forgiving recovery applied)"
+            );
+        } else {
+            if boundary == "REPLACE>>>" {
+                eprintln!(
+                    "[parser warning] SEARCH block closed with 'REPLACE>>>' instead of 'SEARCH>>>' (forgiving recovery applied)"
+                );
+            }
+            while i < lines.len() && lines[i].trim().is_empty() {
+                i += 1;
+            }
+            if i >= lines.len() || !is_replace_open(lines[i]) {
+                return Err("expected '<<<REPLACE' after SEARCH close marker".to_string());
+            }
             i += 1;
         }
-        if i >= lines.len() || lines[i].trim() != "<<<REPLACE" {
-            return Err("expected '<<<REPLACE' after SEARCH close marker".to_string());
-        }
-        i += 1;
+
+        // REPLACE body — ends at a replace close marker (any supported dialect) or the
+        // start of the next edit.
         let replace_start = i;
-        while i < lines.len() && !is_block_close_marker(lines[i]) {
+        while i < lines.len() && !is_replace_close(lines[i]) && !is_search_open(lines[i]) {
             i += 1;
         }
         if i >= lines.len() {
             return Err("REPLACE block was not closed with 'REPLACE>>>'".to_string());
         }
-        if lines[i].trim() == "SEARCH>>>" {
-            eprintln!(
-                "[parser warning] REPLACE block closed with 'SEARCH>>>' instead of 'REPLACE>>>' (forgiving recovery applied)"
-            );
-        }
         let replace = join_block(&lines[replace_start..i]);
-        i += 1;
+        if is_replace_close(lines[i]) {
+            if lines[i].trim() == "SEARCH>>>" {
+                eprintln!(
+                    "[parser warning] REPLACE block closed with 'SEARCH>>>' instead of 'REPLACE>>>' (forgiving recovery applied)"
+                );
+            }
+            i += 1;
+        }
+        // else: stopped at the next `<<<SEARCH`; leave it for the next iteration.
 
         edits.push(SearchReplaceEdit { search, replace });
     }
@@ -252,8 +267,28 @@ fn parse_search_replace_edits(body: &str) -> Result<Vec<SearchReplaceEdit>, Stri
     Ok(edits)
 }
 
-fn is_block_close_marker(line: &str) -> bool {
-    matches!(line.trim(), "SEARCH>>>" | "REPLACE>>>")
+fn is_search_open(line: &str) -> bool {
+    matches!(line.trim(), "<<<SEARCH" | "<<<<<<< SEARCH")
+}
+
+/// Boundary between SEARCH and REPLACE bodies. Canonically `SEARCH>>>`; we also accept a
+/// bare `<<<REPLACE` divider, and tolerate a swapped `REPLACE>>>`.
+fn is_search_close(line: &str) -> bool {
+    matches!(line.trim(), "SEARCH>>>" | "REPLACE>>>" | "<<<REPLACE")
+}
+
+fn is_replace_open(line: &str) -> bool {
+    line.trim() == "<<<REPLACE"
+}
+
+/// End of a REPLACE body. Canonically `REPLACE>>>`; we also accept the git/aider-style
+/// closers some Rust-trained models emit (`<<<`, `>>>>>>>`, `>>>>>>> REPLACE`) and a
+/// swapped `SEARCH>>>`. None of these are valid standalone Rust source lines.
+fn is_replace_close(line: &str) -> bool {
+    matches!(
+        line.trim(),
+        "REPLACE>>>" | "SEARCH>>>" | "<<<" | ">>>>>>>" | ">>>>>>> REPLACE"
+    )
 }
 
 fn join_block(lines: &[&str]) -> String {
@@ -581,6 +616,60 @@ Trailing prose.
     }
 
     #[test]
+    fn parses_git_conflict_dialect_bare_divider_and_closer() {
+        // The Strand-Rust-Coder case: a bare `<<<REPLACE` divider (no `SEARCH>>>`) and a
+        // bare `<<<` closer, from a model trained on the git-conflict SEARCH/REPLACE form.
+        let input = r#"```patch path=src/llm.rs
+<<<SEARCH
+struct OpenRouterChatResponse {
+    choices: Vec<OpenRouterChoice>,
+}
+<<<REPLACE
+impl Foo for OpenRouterChatResponse {}
+<<<
+```"#;
+
+        let parsed = parse(input);
+        assert!(parsed.errors.is_empty(), "errors: {:?}", parsed.errors);
+        assert_eq!(parsed.patches.len(), 1);
+        match &parsed.patches[0] {
+            Patch::Modify { path, edits } => {
+                assert_eq!(path, "src/llm.rs");
+                assert_eq!(edits.len(), 1);
+                assert_eq!(
+                    edits[0].search,
+                    "struct OpenRouterChatResponse {\n    choices: Vec<OpenRouterChoice>,\n}"
+                );
+                assert_eq!(edits[0].replace, "impl Foo for OpenRouterChatResponse {}");
+            }
+            other => panic!("expected Modify, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_aider_style_replace_closer() {
+        let input = r#"```patch path=src/foo.rs
+<<<SEARCH
+let a = 1;
+SEARCH>>>
+<<<REPLACE
+let a = 2;
+>>>>>>> REPLACE
+```"#;
+
+        let parsed = parse(input);
+        assert!(parsed.errors.is_empty(), "errors: {:?}", parsed.errors);
+        assert_eq!(parsed.patches.len(), 1);
+        match &parsed.patches[0] {
+            Patch::Modify { edits, .. } => {
+                assert_eq!(edits[0].search, "let a = 1;");
+                assert_eq!(edits[0].replace, "let a = 2;");
+            }
+            other => panic!("expected Modify, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn parses_multiple_edits_in_one_block() {
         let input = r#"
 ```patch path=src/foo.rs
@@ -669,13 +758,14 @@ REPLACE>>>
 
     #[test]
     fn reports_error_for_unclosed_search() {
+        // A genuinely unclosed SEARCH: no divider or close marker of any dialect before
+        // the fence ends. (A bare `<<<REPLACE` divider is now forgivingly accepted, so it
+        // is covered by parses_git_conflict_dialect_* instead.)
         let input = r#"
 ```patch path=src/foo.rs
 <<<SEARCH
 x
-<<<REPLACE
 y
-REPLACE>>>
 ```
 "#;
         let parsed = parse(input);
