@@ -793,15 +793,17 @@ impl Runtime {
                     );
                 }
 
-                let project_overview_started = Instant::now();
-                match crate::tools::project_overview::summarize_project(&self.config).await {
-                    Ok(summary) => working_memory.push(WorkingMemoryItem::Text {
-                        label: "Project Overview".to_string(),
-                        content: summary,
-                    }),
-                    Err(e) => eprintln!("⚠️ project overview failed: {e}"),
+                if should_run_project_overview(mode, query, intent) {
+                    let project_overview_started = Instant::now();
+                    match crate::tools::project_overview::summarize_project(&self.config).await {
+                        Ok(summary) => working_memory.push(WorkingMemoryItem::Text {
+                            label: "Project Overview".to_string(),
+                            content: summary,
+                        }),
+                        Err(e) => eprintln!("⚠️ project overview failed: {e}"),
+                    }
+                    self.log_stage_timing("project_overview", project_overview_started.elapsed());
                 }
-                self.log_stage_timing("project_overview", project_overview_started.elapsed());
 
                 if mode == SessionMode::Review && intent == RustIntent::EvaluativeReview {
                     prioritize_evaluative_review_memory(&mut working_memory);
@@ -1145,7 +1147,11 @@ fn should_run_project_overview(mode: SessionMode, query: &str, intent: RustInten
                     | RustIntent::CodePathExplanation
             ) || query.to_ascii_lowercase().contains("workspace")
         }
-        SessionMode::Review | SessionMode::Edit => true,
+        // Edit mode targets a specific item; the package/deps/README overview is noise
+        // that inflates the prompt (a real wall on memory-capped local servers). The
+        // file skeletons and excerpts already supply the code context an edit needs.
+        SessionMode::Review => true,
+        SessionMode::Edit => false,
     }
 }
 
@@ -1354,7 +1360,7 @@ fn file_skeletons(
     }
 
     let mut sections = Vec::new();
-    for relative in seen_paths.iter().take(4) {
+    for relative in seen_paths.iter().take(3) {
         let full = project_root.join(relative);
         let Ok(content) = std::fs::read_to_string(&full) else {
             continue;
@@ -1412,7 +1418,9 @@ fn render_file_skeleton_syn(content: &str) -> Option<String> {
     // survive the size cap. Callables (fns, impl/trait method sigs) are secondary context
     // and capped, since a large module's methods would otherwise bloat the prompt.
     const MAX_METHODS_PER_IMPL: usize = 8;
-    const MAX_CALLABLE_LINES: usize = 30;
+    // Hard per-file char budget — a large module's skeleton must not dominate the prompt
+    // (the prefill memory cap on local servers is a real wall, not just a slowdown).
+    const MAX_SKELETON_CHARS: usize = 1600;
 
     let mut types: Vec<String> = Vec::new();
     let mut callables: Vec<String> = Vec::new();
@@ -1479,14 +1487,22 @@ fn render_file_skeleton_syn(content: &str) -> Option<String> {
         }
     }
 
-    if callables.len() > MAX_CALLABLE_LINES {
-        let dropped = callables.len() - MAX_CALLABLE_LINES;
-        callables.truncate(MAX_CALLABLE_LINES);
-        callables.push(format!("// … {dropped} more signature line(s)"));
+    // Assemble under a hard char budget, types first so anchor-critical declarations
+    // always survive; callables fill remaining room.
+    let mut out: Vec<String> = Vec::new();
+    let mut used = 0usize;
+    let mut truncated = false;
+    for block in types.into_iter().chain(callables) {
+        if used + block.len() > MAX_SKELETON_CHARS {
+            truncated = true;
+            continue;
+        }
+        used += block.len() + 1;
+        out.push(block);
     }
-
-    let mut out = types;
-    out.extend(callables);
+    if truncated {
+        out.push("// … (skeleton truncated to fit prompt budget)".to_string());
+    }
 
     if out.is_empty() {
         None
