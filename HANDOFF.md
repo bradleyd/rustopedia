@@ -1,6 +1,6 @@
 # Handoff
 
-Date: 2026-06-01
+Date: 2026-06-18
 
 ## Goal
 
@@ -10,100 +10,131 @@ Rustopedia should feel meaningfully different from a generic coding chat model:
 - pair-programming style
 - minimal wasted cycles outside Rust development
 - better grounding in the local workspace for `ask`, `review`, and especially `edit`
-- make smaller local models actually usable for Rust edits by surrounding them with deterministic grounding and retry-with-evidence loops
+- make smaller local models actually usable for Rust edits by surrounding them with
+  deterministic grounding and retry-with-evidence loops
 
-## Where We Left Off
+## Headline Result This Session
 
-Three commits on `refactor-agent-runtime` covered this session's work:
+A local Rust-trained model (**Strand-Rust-Coder-14B-v1-4bit** on oMLX) went from *unable
+to land any edit* to reliably landing a **compiling, idiomatic patch**. The breakthrough
+was a new **symbolic edit format**: the model names the item it wants to change
+(`@replace struct OpenRouterChatResponse`) and `syn` resolves the span — the model never
+transcribes anchor bytes, which was the recurring failure mode (abbreviation,
+`pub struct` vs `struct`, malformed SEARCH/REPLACE envelopes).
 
-- `471b128` — CLI one-shot, worktree validation retry, file skeleton grounding
-- `4a64da8` — Format-drift retry with circuit breaker
-- (README refresh staged but not yet committed at end of session)
+Last validated run: `--prompt "add a custom Deserialize impl for OpenRouterChatResponse
+that tolerates a missing choices field"` → the model emitted `@replace struct
+OpenRouterChatResponse` adding `#[serde(default)]`, which resolved `[OK]`, applied in the
+scratch worktree, **passed `cargo check`**, EXIT 0, zero retries, ~55s.
 
-End-to-end smoke against Qwen3.5-9B (openrouter) now shows all three retry kinds firing in sequence on a single hard prompt: format → cargo_check → (anchor on third iter). Iter 0 went from a 178s soliloquy to a 17s clean parseable patch (10x speedup) once the format-reset directive landed.
+## What Landed (all on `origin/main`, pushed)
+
+Working branch was merged to `main`; everything below is on `main` through `8e3d569`:
+
+- `0f1b421` docs.rs grounding in edit mode + best-attempt retry selection
+- `0f49134` best-attempt scoring (a parsed-but-blocked patch beats an empty one)
+- `21526a1` patch parser tolerates the git-conflict SEARCH/REPLACE dialect
+  (`<<<REPLACE` divider, `<<<` / `>>>>>>>` closers) Strand emits
+- `9f87e6a` surgical cargo_check retry (shows the model its own prior patch) +
+  REPLACE-scoping guards
+- `3dbcfef` **Phase 1**: syn-based file skeletons — exact signatures of every top-level
+  item incl. **private** ones and `#[derive(...)]`, via proc-macro2 span-locations
+- `8b53f3b` / `e52575c` bounded skeleton size + dropped Project Overview in edit mode to
+  shrink the prompt
+- `7c02953` opt-in prompt-budget guard (`RUSTOPEDIA_MAX_PROMPT_TOKENS`, default 0=off)
+- `280abda` **Phase 2**: the symbolic edit format
+- `8e3d569` conflicting-impl detector (derive + manual impl → E0119) with a targeted retry
 
 ## Current Capabilities
 
-**Edit-mode retry loop** (`src/retry_loop.rs`, wired in `src/runtime.rs::execute_turn`) — shares a single `RUSTOPEDIA_EDIT_MAX_RETRIES` budget across three failure classes, evaluated in priority order:
+**Symbolic edits** (`src/patch.rs`, applied in `src/scratch.rs`, prompt in
+`src/generate_prompt.rs::SYMBOLIC_OUTPUT_REQUIREMENT` — presented as PREFERRED):
 
-1. **Patch-format drift** (`PatchFormatError`) — fires when no parseable patch blocks. Directive inlines the canonical SEARCH/REPLACE shape and bounds the model's previous output excerpt to 800 chars. Circuit-breaks on two consecutive format failures.
-2. **Anchor mismatch** (`AnchorLineFound` / `AnchorLineMissing` / `MultipleMatches` / `CreateOnExistingFile`) — directive shows the real file slice around the model's intended anchor.
-3. **Validation failure** (`CargoCheckFailed`) — patches apply cleanly in a scratch git worktree (`src/scratch.rs`), then `cargo check --message-format=short` runs there with `CARGO_TARGET_DIR` shared with the main project for incremental compilation. Directive shows the compiler error and post-patch file slices around each failing span.
+- Fence: ` ```patch path=… edit=symbolic ` with `@replace` / `@after` / `@before
+  <selector>` operations, each body terminated by a `@@@` line.
+- Selectors: `struct N | enum N | union N | type N | trait N | fn n | impl Type |
+  impl Trait for Type`. `fn n` falls back to an impl method if no top-level fn matches.
+- `resolve_item_span` (patch.rs) reuses the Phase-1 syn pattern to find the item's line
+  span. `verify_patch`'s `Patch::Symbolic` arm maps resolution → `AnchorStatus` (a syn
+  parse failure → retryable `FileReadError`, with a "fall back to SEARCH/REPLACE"
+  directive). Apply is span-based (`line_range_to_byte_range` + `replace_range`/insert,
+  descending-order, idempotent inserts).
+- Failure directives (`src/retry_loop.rs`): `SymbolicNotFound`/`SymbolicAmbiguous` list
+  the file's actual item names (`list_item_selectors`); `SymbolicParseFailed` says fall
+  back to SEARCH/REPLACE.
+- **SEARCH/REPLACE still fully supported** as the fallback format.
 
-**Scratch overlay** (`src/scratch.rs::ScratchOverlay`):
+**Conflicting-impl detector** (`patch.rs::detect_symbolic_conflicts`, wired in
+`runtime.rs::execute_turn` before scratch validation): when an `@after`/`@before` body is
+`impl Trait for Type` and `Type` derives `Trait`, it emits a precise retry telling the
+model to add a second `@replace struct Type` op dropping the derive. cargo_check is the
+backstop. **Note: committed + unit-tested but not yet exercised end-to-end** — the last
+Strand run took the clean `@replace` path and never hit a conflict.
 
-- `git worktree add --detach HEAD` into a temp dir
-- mirrors uncommitted tracked changes via `git diff HEAD | git apply`
-- copies untracked-but-not-ignored files
-- tolerates duplicate patches idempotently (skips when SEARCH is gone but REPLACE is already present)
-- removed via `git worktree remove --force` on Drop
+**syn-grounded skeletons** (`runtime.rs::render_file_skeleton_syn`): exact source
+signatures of all items (pub + private), capped at 1600 chars/file, 3 files, types-first;
+falls back to the old line-scan when a file doesn't parse.
 
-**Grounding extractors** (`src/runtime.rs`):
+**Edit-mode retry loop** (`runtime.rs::execute_turn` + `retry_loop.rs`) — single
+`RUSTOPEDIA_EDIT_MAX_RETRIES` budget across: patch-format drift, anchor mismatch,
+symbolic not-found/ambiguous, symbolic-conflict, and cargo_check failure. **Best-attempt
+selection** (`attempt_quality`) emits the highest-scoring iteration, so a degraded retry
+never overwrites a good earlier patch.
 
-- `current_code_facts` — names of every struct/enum/fn/field/env var present in working-memory excerpts (existed before this session)
-- `file_skeletons` — for each file referenced by an excerpt, re-reads the **full file** from disk and emits a compact skeleton of top-level structs (with field names + types), enums (with variant names), and pub fn signatures. This fixed the paralysis failure mode where the model refused to act because only a windowed excerpt was visible.
+## Infrastructure / Environment Notes
 
-**Non-interactive CLI** (`src/cli.rs`, wired in `src/main.rs`):
-
-- `rustopedia --mode <ask|review|edit> --prompt "..."`
-- stdin if `--prompt` omitted
-- `--json` for structured output (`OneShotReport`)
-- `--max-retries N` overrides env default
-- exit codes: 0 clean, 1 anchor failures, 2 no patches emitted (edit), 3 setup error
-- REPL behavior unchanged when no args are passed
-
-**Repo hygiene**: `.env` now in `.gitignore`.
+- **oMLX prefill wall (resolved).** The server rejected prompts >~3.5K tokens with a 500
+  ("Prefill context too large") due to a mispredicting guard. Fix was server-side, in
+  `~/.omlx/settings.json` + a kernel limit: `sudo sysctl iogpu.wired_limit_mb=30720`
+  (resets on reboot — re-run it) and `scheduler.chunked_prefill: true` (needs an oMLX
+  restart). With these, ~5K-token edit prompts prefill fine. The guard knobs
+  (`memory.prefill_memory_guard`, `memory_guard_tier`, `prefill_safe_zone_ratio`) are
+  there if it recurs.
+- `.env`: edit model is `Strand-Rust-Coder-14B-v1-4bit` (`RUSTOPEDIA_EDIT_MODEL_NAME`);
+  ask/review stay on `Qwen3.5-9B-MLX-4bit`. Provider `openrouter` → local
+  `http://127.0.0.1:8000/v1`, key `9727`. `RUSTOPEDIA_MAX_PROMPT_TOKENS` is commented out
+  (the server fix removed the need to cap).
 
 ## Next Likely Work
 
-**Top priority — fix tool routing in edit mode.** Every smoke run this session printed `"Rust-first routing selected no external tools."` for edit-mode prompts. The crate/docs/github tools exist (`src/tools/{crate_search,docs,github}.rs`) and are referenced in `runtime.rs::run_agent`, but the planner is selecting nothing for edit. Hypothesis: external tool routing was cut during the runtime refactor and never wired back for edit mode. Likely a 1-hour fix once we find where the planner short-circuits. **This is the single highest-leverage next move** — small models benefit hugely from authoritative API examples (docs.rs lookups) at generation time, and we already have the lookup tools built. Investigate first; don't build new retrieval until you know what's actually wired.
+1. **Exercise the conflicting-impl detector e2e.** Get a run where Strand takes the
+   `@after` + manual-impl route (vs the clean `@replace`) and confirm the `kind=
+   symbolic_conflict` retry steers it to a two-op edit that compiles. Sampling variance —
+   may need several runs.
+2. **Fix the flaky scratch tests.** `src/scratch.rs` git-worktree tests flake under
+   parallel `cargo test` (transient `git worktree add` contention); all pass in isolation
+   / `--test-threads=1`. Add a serialization guard (e.g. a shared mutex) so CI is green.
+3. **Measure symbolic-edit success rate.** Now that Strand is unblocked, run the edit
+   prompt N× to quantify: format-adoption rate, applicable rate, clean-compile rate.
+4. **Exercise `@before` and the `fn`→impl-method selector** — implemented, lightly tested.
+5. Optional: field-level symbolic ops (`@add-attr`, `@add-field`) if `@replace`-whole-item
+   proves too coarse; tree-sitter only if we need error-tolerant parsing of broken files.
 
-**Source-strategy framing** (once routing is unblocked):
+## Verification Status
 
-- **docs.rs HTML** for any named crate — highest-value, authoritative, always current. Best edit-mode signal.
-- **crates.io API** for "what crate solves X" — `ask`-mode concern, less leverage in edit.
-- **Local RAG over rust-book / std-docs corpus** — useful for language/idiom questions (lifetimes, traits) where the answer is stable. Existing Qdrant pipeline can serve this if revived.
-- **GitHub code search** — last resort: slow and noisy. Useful only when docs.rs doesn't have an example.
+- `cargo build` clean (one pre-existing `ParsedPatches::is_empty` dead_code warning).
+- `cargo clippy --all-targets --no-deps` clean for new code (pre-existing
+  `too_many_arguments` + `sort_by_key` warnings remain in older files).
+- `cargo test` — **119 passing** single-threaded (`cargo test -- --test-threads=1`).
+  Under default parallelism the scratch git-worktree tests flake (see Next Work #2).
+- End-to-end: Strand lands a compiling symbolic edit (EXIT 0) on the OpenRouterChatResponse
+  prompt; full transcripts at `/tmp/strand_*.log` from this session.
 
-Don't pick RAG vs. web search as a binary; pick the *signal* ("show the model a concrete example of the API it's about to call") and route each source to the case where it's strongest.
-
-**Smaller follow-ups identified during this session:**
-
-- **`RUSTOPEDIA_EDIT_MAX_RETRIES=2` is tight** on hard prompts. The Qwen3.5-9B openrouter run needed all 3 attempts and still didn't fully land. Try `--max-retries 4` on representative prompts before tuning the default.
-- **Iter 0 cost is still ~3 minutes** for the soliloquy case before format retry can do its work. Retry directives don't help iter 0 — only a system-prompt-level tightening ("emit patches first, prose minimal") can shrink it. Worth a focused experiment.
-- **Scratch overlay first `cargo check` is ~16s** even with shared `CARGO_TARGET_DIR` (cargo's per-workspace metadata stamping). If retry latency becomes a complaint, cache one overlay per session instead of per-retry.
-- **The `dead_code` warning on `ParsedPatches::is_empty`** in `src/patch.rs:62` was pre-existing and not in scope this session. Either delete or use.
-- **`append_edit_outputs` has 9 args** (clippy `too_many_arguments` warning). Pre-existing; bundle into a struct when next touched.
-
-## Verification Completed
-
-After the format-retry change:
-
-- `cargo check` — clean except the pre-existing `ParsedPatches::is_empty` dead_code warning
-- `cargo clippy --all-targets --no-deps` — clean except the pre-existing `too_many_arguments` warning
-- `cargo test` — 70 passing, 1 ignored, 0 failing (added 2 new directive-rendering tests + 1 skeleton extractor test + 2 scratch overlay tests this session)
-- End-to-end smoke against Qwen3.5-9B confirmed format → cargo_check retry handoff works on a real prompt
-
-## Known Open Questions (carried forward)
-
-- whether long sessions need more aggressive memory compaction / session summarization
-- whether `project_overview()` is still too large/noisy for smaller local models
-- whether `--apply` belongs in the CLI (currently every run is implicitly dry-run because nothing writes patches to disk in production code paths)
-- whether a memory view such as `/status` or `/memory` should expose more detail about memory layers and freshness
-
-## First Test To Run After Reboot
-
-If routing-fix work has not started, baseline first:
+## How To Run
 
 ```bash
-RUSTOPEDIA_DEBUG=1 ./target/debug/rustopedia \
-  --mode edit \
-  --prompt "fix the hard coded paths for openrouter" \
-  --json 2>&1 | grep -E "^\[debug\]|^Stage:"
+cargo build
+RUSTOPEDIA_DEBUG=1 ./target/debug/rustopedia --mode edit --max-retries 4 \
+  --prompt "add a custom Deserialize impl for OpenRouterChatResponse that tolerates a missing choices field"
 ```
-
-Confirm the trace still shows `"Rust-first routing selected no external tools."` for edit-mode. If it does, that's the starting point for the next session — search `src/planner.rs` and `src/runtime.rs::route_tools` for where edit-mode routing decisions are made and why no tool ever fires.
+Watch the debug trace for: `Edit doc-targets selected …`, the synthesized prompt size
+(`prompt_tokens~=`), `retry_loop iter=… verified: patches=… edits_ok=…`, `kind=…` retry
+scheduling, `emitting best attempt from iteration=…`, and the final `patch_preview`
+(`[1] symbolic-edit … : [OK]`). Make sure the oMLX server is up (`curl -s -o /dev/null -w
+"%{http_code}" -H "Authorization: Bearer 9727" http://127.0.0.1:8000/v1/models` → 200).
 
 ## Repo State
 
-Branch: `refactor-agent-runtime`. Two commits ahead of where this session started, plus a staged-but-uncommitted README refresh. `.env` is now gitignored. Tree is otherwise clean.
+`main` = `origin/main` = `8e3d569`, tree clean. The earlier `refactor-agent-runtime`
+branch is merged. The deprecated docs-routing plan and this session's Phase-2 plan live in
+`~/.claude/plans/squishy-gliding-wirth.md` (Phase 2 design, for reference).
