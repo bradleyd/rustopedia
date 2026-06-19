@@ -1354,7 +1354,7 @@ fn file_skeletons(
     }
 
     let mut sections = Vec::new();
-    for relative in seen_paths.iter().take(6) {
+    for relative in seen_paths.iter().take(4) {
         let full = project_root.join(relative);
         let Ok(content) = std::fs::read_to_string(&full) else {
             continue;
@@ -1408,52 +1408,85 @@ fn render_file_skeleton_syn(content: &str) -> Option<String> {
             .min(span.start().line)
     };
 
-    let mut out: Vec<String> = Vec::new();
+    // Data types are the anchor targets — emit them in full and first, so they always
+    // survive the size cap. Callables (fns, impl/trait method sigs) are secondary context
+    // and capped, since a large module's methods would otherwise bloat the prompt.
+    const MAX_METHODS_PER_IMPL: usize = 8;
+    const MAX_CALLABLE_LINES: usize = 30;
+
+    let mut types: Vec<String> = Vec::new();
+    let mut callables: Vec<String> = Vec::new();
+
+    let mut push_methods = |out: &mut Vec<String>, header: String, sigs: Vec<String>| {
+        out.push(header);
+        let shown = sigs.len().min(MAX_METHODS_PER_IMPL);
+        for sig in sigs.iter().take(shown) {
+            out.push(format!("    {sig} {{ ... }}"));
+        }
+        if sigs.len() > shown {
+            out.push(format!("    // … {} more method(s)", sigs.len() - shown));
+        }
+        out.push("}".to_string());
+    };
+
     for item in &file.items {
         match item {
             syn::Item::Struct(it) => {
-                out.push(slice(start_with_attrs(&it.attrs, it.span()), it.span().end().line))
+                types.push(slice(start_with_attrs(&it.attrs, it.span()), it.span().end().line))
             }
             syn::Item::Enum(it) => {
-                out.push(slice(start_with_attrs(&it.attrs, it.span()), it.span().end().line))
+                types.push(slice(start_with_attrs(&it.attrs, it.span()), it.span().end().line))
             }
             syn::Item::Union(it) => {
-                out.push(slice(start_with_attrs(&it.attrs, it.span()), it.span().end().line))
+                types.push(slice(start_with_attrs(&it.attrs, it.span()), it.span().end().line))
             }
             syn::Item::Type(it) => {
-                out.push(slice(start_with_attrs(&it.attrs, it.span()), it.span().end().line))
+                types.push(slice(start_with_attrs(&it.attrs, it.span()), it.span().end().line))
             }
             syn::Item::Fn(it) => {
                 let sig = slice(it.sig.span().start().line, it.sig.span().end().line);
-                out.push(format!("{} {{ ... }}", trim_sig(&sig)));
+                callables.push(format!("{} {{ ... }}", trim_sig(&sig)));
             }
             syn::Item::Impl(it) => {
-                out.push(slice(it.span().start().line, it.span().start().line));
-                for sub in &it.items {
-                    if let syn::ImplItem::Fn(m) = sub {
-                        let sig = slice(m.sig.span().start().line, m.sig.span().end().line);
-                        out.push(format!("    {} {{ ... }}", trim_sig(&sig)));
-                    }
-                }
-                out.push("}".to_string());
+                let sigs = it
+                    .items
+                    .iter()
+                    .filter_map(|sub| match sub {
+                        syn::ImplItem::Fn(m) => Some(trim_sig(&slice(
+                            m.sig.span().start().line,
+                            m.sig.span().end().line,
+                        ))),
+                        _ => None,
+                    })
+                    .collect();
+                push_methods(&mut callables, slice(it.span().start().line, it.span().start().line), sigs);
             }
             syn::Item::Trait(it) => {
-                out.push(slice(it.span().start().line, it.span().start().line));
-                for sub in &it.items {
-                    if let syn::TraitItem::Fn(m) = sub {
-                        let sig = slice(m.sig.span().start().line, m.sig.span().end().line);
-                        out.push(format!("    {} {{ ... }}", trim_sig(&sig)));
-                    }
-                }
-                out.push("}".to_string());
+                let sigs = it
+                    .items
+                    .iter()
+                    .filter_map(|sub| match sub {
+                        syn::TraitItem::Fn(m) => Some(trim_sig(&slice(
+                            m.sig.span().start().line,
+                            m.sig.span().end().line,
+                        ))),
+                        _ => None,
+                    })
+                    .collect();
+                push_methods(&mut callables, slice(it.span().start().line, it.span().start().line), sigs);
             }
             _ => {}
         }
-        if out.len() > 400 {
-            out.push("// ... (truncated)".to_string());
-            break;
-        }
     }
+
+    if callables.len() > MAX_CALLABLE_LINES {
+        let dropped = callables.len() - MAX_CALLABLE_LINES;
+        callables.truncate(MAX_CALLABLE_LINES);
+        callables.push(format!("// … {dropped} more signature line(s)"));
+    }
+
+    let mut out = types;
+    out.extend(callables);
 
     if out.is_empty() {
         None
@@ -2389,4 +2422,5 @@ async fn generate_openrouter(&self, model: &str, prompt: &str) -> Result<String>
         ));
     }
 }
+
 
