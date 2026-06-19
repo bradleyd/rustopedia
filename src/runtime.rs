@@ -1000,18 +1000,42 @@ impl Runtime {
         retry_directive: Option<&str>,
     ) -> String {
         println!("Stage: synthesize");
-        let memory = MemoryState {
-            current_task: CurrentTask {
-                mode,
-                intent: artifacts.initial_intent,
-                query: query.to_string(),
-            },
-            working_memory: artifacts.working_memory.clone(),
-            session_summary: trimmed_history(session.history(), 4, 2_000),
-            background_summary: None,
+        let session_summary = trimmed_history(session.history(), 4, 2_000);
+        let build = |working_memory: Vec<WorkingMemoryItem>| -> String {
+            let memory = MemoryState {
+                current_task: CurrentTask {
+                    mode,
+                    intent: artifacts.initial_intent,
+                    query: query.to_string(),
+                },
+                working_memory,
+                session_summary: session_summary.clone(),
+                background_summary: None,
+            };
+            crate::generate_prompt::build_prompt_with_retry(&memory, &artifacts.plan, retry_directive)
         };
 
-        crate::generate_prompt::build_prompt_with_retry(&memory, &artifacts.plan, retry_directive)
+        let budget = self.config.max_prompt_tokens;
+        let mut working_memory = artifacts.working_memory.clone();
+        let mut prompt = build(working_memory.clone());
+
+        // Prompt-budget guard: when a token ceiling is set (for servers with a prefill
+        // memory cap), drop the lowest-priority context items until the prompt fits.
+        if budget > 0 {
+            let mut dropped = 0usize;
+            while estimate_tokens(&prompt) > budget && drop_one_low_priority(&mut working_memory) {
+                dropped += 1;
+                prompt = build(working_memory.clone());
+            }
+            if dropped > 0 && self.config.debug {
+                eprintln!(
+                    "[debug] prompt_budget dropped={dropped} item(s) to fit {budget} tokens (now ~{})",
+                    estimate_tokens(&prompt)
+                );
+            }
+        }
+
+        prompt
     }
 
     fn log_prompt_debug(
@@ -1425,7 +1449,7 @@ fn render_file_skeleton_syn(content: &str) -> Option<String> {
     let mut types: Vec<String> = Vec::new();
     let mut callables: Vec<String> = Vec::new();
 
-    let mut push_methods = |out: &mut Vec<String>, header: String, sigs: Vec<String>| {
+    let push_methods = |out: &mut Vec<String>, header: String, sigs: Vec<String>| {
         out.push(header);
         let shown = sigs.len().min(MAX_METHODS_PER_IMPL);
         for sig in sigs.iter().take(shown) {
@@ -1919,6 +1943,48 @@ fn build_edit_run_summary(m: EditRunMetrics<'_>) -> String {
     )
 }
 
+/// Drop priority for the prompt-budget guard: higher = shed sooner. `None` marks an
+/// item that is never dropped (the anchor-critical grounding an edit can't do without).
+fn working_memory_drop_rank(item: &WorkingMemoryItem) -> Option<u32> {
+    match item {
+        WorkingMemoryItem::Text { label, .. } => match label.as_str() {
+            "File Skeletons" | "Likely Edit Targets" | "Current Code Facts" => None,
+            "Tool Output (docs_agent)" => Some(60),
+            "Cargo Test" => Some(55),
+            "Cargo Clippy" => Some(54),
+            "Cargo Check" => Some(53),
+            "Project Overview" => Some(50),
+            "Rust Analyzer" => Some(45),
+            _ => Some(40),
+        },
+        WorkingMemoryItem::DiffSummary(_) => Some(48),
+        // Excerpts are ordered most-relevant-first; shed the trailing (least relevant)
+        // ones only after the diagnostics/docs above are gone.
+        WorkingMemoryItem::FileExcerpt(_) => Some(20),
+    }
+}
+
+/// Remove one lowest-priority working-memory item (highest drop-rank; among ties the
+/// last index, i.e. the least-relevant trailing excerpt). Returns false when only
+/// never-drop items remain.
+fn drop_one_low_priority(working_memory: &mut Vec<WorkingMemoryItem>) -> bool {
+    let mut victim: Option<(u32, usize)> = None;
+    for (idx, item) in working_memory.iter().enumerate() {
+        if let Some(rank) = working_memory_drop_rank(item) {
+            match victim {
+                Some((best, _)) if rank < best => {}
+                _ => victim = Some((rank, idx)),
+            }
+        }
+    }
+    if let Some((_, idx)) = victim {
+        working_memory.remove(idx);
+        true
+    } else {
+        false
+    }
+}
+
 /// Heuristic quality of an edit attempt, used to keep the best result across retries
 /// rather than emitting whatever the final (possibly degraded) iteration produced.
 /// Applicable patches dominate; emitting *any* structured patch beats a format failure
@@ -2115,6 +2181,46 @@ fn trimmed_history(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prompt_budget_drops_lowest_priority_first_and_protects_skeleton() {
+        let text = |label: &str| WorkingMemoryItem::Text {
+            label: label.to_string(),
+            content: "x".repeat(50),
+        };
+        let excerpt = |path: &str| {
+            WorkingMemoryItem::FileExcerpt(crate::memory::FileExcerpt {
+                path: path.to_string(),
+                start_line: 1,
+                end_line: 2,
+                text: "y".repeat(50),
+            })
+        };
+        let mut wm = vec![
+            text("File Skeletons"),
+            excerpt("src/a.rs"),
+            excerpt("src/b.rs"),
+            text("Cargo Test"),
+            text("Tool Output (docs_agent)"),
+        ];
+
+        // docs first, then cargo, then the trailing (least-relevant) excerpt.
+        assert!(drop_one_low_priority(&mut wm));
+        assert!(!wm.iter().any(|i| matches!(i, WorkingMemoryItem::Text { label, .. } if label == "Tool Output (docs_agent)")));
+        assert!(drop_one_low_priority(&mut wm));
+        assert!(!wm.iter().any(|i| matches!(i, WorkingMemoryItem::Text { label, .. } if label == "Cargo Test")));
+        assert!(drop_one_low_priority(&mut wm)); // drops src/b.rs (last excerpt)
+        match &wm[..] {
+            [WorkingMemoryItem::Text { label, .. }, WorkingMemoryItem::FileExcerpt(e)]
+                if label == "File Skeletons" && e.path == "src/a.rs" => {}
+            other => panic!("unexpected remaining memory: {other:?}"),
+        }
+        // Skeleton + the most-relevant excerpt are protected/last — but the excerpt is
+        // still droppable; only the skeleton is never-drop.
+        assert!(drop_one_low_priority(&mut wm)); // drops src/a.rs
+        assert!(!drop_one_low_priority(&mut wm)); // only "File Skeletons" left → nothing to drop
+        assert_eq!(wm.len(), 1);
+    }
 
     #[test]
     fn attempt_quality_prefers_applicable_patch_over_format_failure() {

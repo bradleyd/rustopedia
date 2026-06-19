@@ -47,6 +47,10 @@ pub struct AppConfig {
     pub ripgrep_bin: String,
     pub edit_max_retries: u32,
     pub llm_max_tokens: u32,
+    /// Hard ceiling on the assembled prompt size (tokens). When > 0, lowest-priority
+    /// context is dropped until the prompt fits — useful for local servers with a
+    /// prefill memory cap. 0 disables the guard.
+    pub max_prompt_tokens: usize,
     pub python_bin: String,
     pub embed_query_script: String,
     pub project_root: String,
@@ -106,6 +110,10 @@ impl AppConfig {
                 .ok()
                 .and_then(|v| v.parse::<u32>().ok())
                 .unwrap_or(4096),
+            max_prompt_tokens: env::var("RUSTOPEDIA_MAX_PROMPT_TOKENS")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(0),
             python_bin: env::var("RUSTOPEDIA_PYTHON_BIN").unwrap_or_else(|_| "python3".to_string()),
             embed_query_script: env::var("RUSTOPEDIA_EMBED_QUERY_SCRIPT")
                 .unwrap_or_else(|_| "rag/embed_query.py".to_string()),
