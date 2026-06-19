@@ -463,6 +463,26 @@ impl Runtime {
                 }
             }
 
+            // Symbolic edits can resolve+apply cleanly yet add a trait impl for a type
+            // that already derives that trait (E0119). Catch this deterministically here,
+            // before the expensive scratch cargo check, with a precise directive.
+            let conflicts = crate::patch::detect_symbolic_conflicts(&verified, project_root);
+            if iteration < max_retries && !conflicts.is_empty() {
+                if self.config.debug {
+                    eprintln!(
+                        "[debug] retry_loop scheduling iteration={} kind=symbolic_conflict conflicts={} max_retries={}",
+                        iteration + 1,
+                        conflicts.len(),
+                        max_retries
+                    );
+                }
+                retry_directive = Some(crate::retry_loop::build_symbolic_conflict_directive(
+                    query, &conflicts,
+                ));
+                iteration += 1;
+                continue;
+            }
+
             // Anchors clean (or anchor retries exhausted). If every emitted
             // patch is applicable, validate the result by applying it in a
             // scratch worktree and running `cargo check` there.

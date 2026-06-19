@@ -529,6 +529,30 @@ pub fn build_retry_directive(original_query: &str, evidence: &RetryEvidence) -> 
     sections.join("\n\n")
 }
 
+/// Directive for conflicting trait impls: the model added `impl Trait for Type` while
+/// `Type` already derives `Trait`. Tell it to also drop the derive in the same patch.
+pub fn build_symbolic_conflict_directive(
+    original_query: &str,
+    conflicts: &[crate::patch::SymbolicConflict],
+) -> String {
+    let mut lines = vec![format!(
+        "Your symbolic edit applied, but it creates conflicting trait implementations (the type already derives the trait you implemented manually).\n\nTask remains: {}",
+        original_query.trim()
+    )];
+    for c in conflicts {
+        lines.push(format!(
+            "- You added `impl {trait} for {ty}`, but `{ty}` still has `#[derive({trait})]`. A type cannot both derive and manually implement `{trait}`.\n  Fix: in the SAME patch block, add a second operation `@replace struct {ty}` that re-emits `{ty}` with `{trait}` removed from its `#[derive(...)]` (keep the other derives), alongside your manual impl.",
+            trait = c.trait_name,
+            ty = c.type_name
+        ));
+    }
+    lines.push(
+        "Re-emit one `edit=symbolic` block containing BOTH operations: the `@replace struct` that drops the conflicting derive, and your `@after`/`@before` manual impl. Keep prose to 1-2 sentences."
+            .to_string(),
+    );
+    lines.join("\n\n")
+}
+
 fn render_available_items(items: &[String]) -> String {
     if items.is_empty() {
         return "  (could not list the file's items)".to_string();

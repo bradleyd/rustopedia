@@ -747,6 +747,100 @@ fn resolve_item_span(content: &str, selector: &ItemSelector) -> AnchorResolution
     }
 }
 
+/// A symbolic edit that adds `impl Trait for Type` while `Type` already `#[derive]`s
+/// `Trait` — the resulting code has conflicting trait implementations (E0119).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SymbolicConflict {
+    pub path: String,
+    pub trait_name: String,
+    pub type_name: String,
+}
+
+/// Detect conflicting-impl edits before the expensive scratch `cargo check`: an
+/// `@after`/`@before` whose body is `impl Trait for Type` where `Type` derives `Trait`.
+pub fn detect_symbolic_conflicts(
+    verified: &VerifiedPatches,
+    project_root: &Path,
+) -> Vec<SymbolicConflict> {
+    let mut conflicts = Vec::new();
+    for patch in &verified.patches {
+        let VerifiedPatch::Symbolic { path, edits } = patch else {
+            continue;
+        };
+        let content = match std::fs::read_to_string(resolve_path(project_root, path)) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        for edit in edits {
+            if !edit.status.is_applicable()
+                || !matches!(
+                    edit.edit.op,
+                    SymbolicOp::InsertAfter | SymbolicOp::InsertBefore
+                )
+            {
+                continue;
+            }
+            if let Some((trait_name, type_name)) = parse_impl_header(&edit.edit.body)
+                && type_derives_trait(&content, &type_name, &trait_name)
+            {
+                conflicts.push(SymbolicConflict {
+                    path: path.clone(),
+                    trait_name,
+                    type_name,
+                });
+            }
+        }
+    }
+    conflicts
+}
+
+/// If `body` is a trait impl, return the (trait last-segment ident, self-type base ident).
+fn parse_impl_header(body: &str) -> Option<(String, String)> {
+    let item: syn::ItemImpl = syn::parse_str(body.trim()).ok()?;
+    let (_, trait_path, _) = item.trait_.as_ref()?;
+    let trait_name = trait_path.segments.last()?.ident.to_string();
+    let type_name = base_type_ident(&item.self_ty)?;
+    Some((trait_name, type_name))
+}
+
+/// The base identifier of a type path (`Foo` from `Foo`, `Foo<T>`, or `crate::Foo`).
+fn base_type_ident(ty: &syn::Type) -> Option<String> {
+    match ty {
+        syn::Type::Path(p) => Some(p.path.segments.last()?.ident.to_string()),
+        _ => None,
+    }
+}
+
+/// Whether the struct/enum named `type_name` in `content` derives `trait_name`.
+fn type_derives_trait(content: &str, type_name: &str, trait_name: &str) -> bool {
+    let Ok(file) = syn::parse_file(content) else {
+        return false;
+    };
+    for item in &file.items {
+        let attrs = match item {
+            syn::Item::Struct(it) if it.ident == type_name => &it.attrs,
+            syn::Item::Enum(it) if it.ident == type_name => &it.attrs,
+            syn::Item::Union(it) if it.ident == type_name => &it.attrs,
+            _ => continue,
+        };
+        for attr in attrs {
+            if attr.path().is_ident("derive") {
+                let mut found = false;
+                let _ = attr.parse_nested_meta(|meta| {
+                    if meta.path.segments.last().is_some_and(|s| s.ident == trait_name) {
+                        found = true;
+                    }
+                    Ok(())
+                });
+                if found {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Render a `syn::Type` to a normalized string for selector comparison.
 fn type_to_string(ty: &syn::Type) -> String {
     use quote::ToTokens;
@@ -1596,6 +1690,50 @@ y
             }
             other => panic!("expected Symbolic, got {other:?}"),
         }
+    }
+
+    fn symbolic_after_impl(path: &str, body: &str) -> ParsedPatches {
+        ParsedPatches {
+            patches: vec![Patch::Symbolic {
+                path: path.into(),
+                edits: vec![SymbolicEdit {
+                    op: SymbolicOp::InsertAfter,
+                    selector: ItemSelector::Struct("Foo".into()),
+                    body: body.into(),
+                }],
+            }],
+            errors: vec![],
+        }
+    }
+
+    #[test]
+    fn detects_conflicting_derive_and_manual_impl() {
+        let root = TempRoot::new();
+        root.write(
+            "src/foo.rs",
+            "#[derive(Debug, Deserialize)]\nstruct Foo { x: i32 }\n",
+        );
+        let parsed = symbolic_after_impl(
+            "src/foo.rs",
+            "impl<'de> Deserialize<'de> for Foo { fn deserialize<D>(_: D) -> Result<Self, D::Error> { todo!() } }",
+        );
+        let verified = verify(&parsed, &root.path);
+        let conflicts = detect_symbolic_conflicts(&verified, &root.path);
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].trait_name, "Deserialize");
+        assert_eq!(conflicts[0].type_name, "Foo");
+    }
+
+    #[test]
+    fn no_conflict_when_type_does_not_derive_the_trait() {
+        let root = TempRoot::new();
+        root.write("src/foo.rs", "#[derive(Debug)]\nstruct Foo { x: i32 }\n");
+        let parsed = symbolic_after_impl(
+            "src/foo.rs",
+            "impl<'de> Deserialize<'de> for Foo { fn deserialize<D>(_: D) -> Result<Self, D::Error> { todo!() } }",
+        );
+        let verified = verify(&parsed, &root.path);
+        assert!(detect_symbolic_conflicts(&verified, &root.path).is_empty());
     }
 
     #[test]
