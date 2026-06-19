@@ -1359,7 +1359,10 @@ fn file_skeletons(
         let Ok(content) = std::fs::read_to_string(&full) else {
             continue;
         };
-        let skeleton = render_file_skeleton(&content);
+        // Prefer the parser-backed skeleton (exact signatures incl. private items); fall
+        // back to the line-scan heuristic when the file doesn't parse.
+        let skeleton =
+            render_file_skeleton_syn(&content).unwrap_or_else(|| render_file_skeleton(&content));
         if skeleton.trim().is_empty() {
             continue;
         }
@@ -1371,6 +1374,102 @@ fn file_skeletons(
     } else {
         Some(sections.join("\n\n"))
     }
+}
+
+/// Parser-backed file skeleton: exact source signatures of every top-level item
+/// (structs, enums, unions, type aliases, fns, impls, traits) — public AND private —
+/// sliced verbatim from the file so the model can copy anchors byte-for-byte. Returns
+/// None when the file does not parse (e.g. mid-edit), so the caller falls back to the
+/// line-scan skeleton.
+fn render_file_skeleton_syn(content: &str) -> Option<String> {
+    use syn::spanned::Spanned;
+
+    let file = syn::parse_file(content).ok()?;
+    let lines: Vec<&str> = content.lines().collect();
+
+    // Inclusive 1-based line range (from proc-macro2 span-locations) → verbatim slice.
+    let slice = |start_line: usize, end_line: usize| -> String {
+        let start = start_line.saturating_sub(1);
+        let end = end_line.min(lines.len());
+        if start >= end {
+            String::new()
+        } else {
+            lines[start..end].join("\n")
+        }
+    };
+    // Earliest line of an item including its outer attributes (e.g. `#[derive(...)]`),
+    // so the anchor text the model copies matches the file exactly.
+    let start_with_attrs = |attrs: &[syn::Attribute], span: proc_macro2::Span| -> usize {
+        attrs
+            .iter()
+            .map(|a| a.span().start().line)
+            .min()
+            .unwrap_or(span.start().line)
+            .min(span.start().line)
+    };
+
+    let mut out: Vec<String> = Vec::new();
+    for item in &file.items {
+        match item {
+            syn::Item::Struct(it) => {
+                out.push(slice(start_with_attrs(&it.attrs, it.span()), it.span().end().line))
+            }
+            syn::Item::Enum(it) => {
+                out.push(slice(start_with_attrs(&it.attrs, it.span()), it.span().end().line))
+            }
+            syn::Item::Union(it) => {
+                out.push(slice(start_with_attrs(&it.attrs, it.span()), it.span().end().line))
+            }
+            syn::Item::Type(it) => {
+                out.push(slice(start_with_attrs(&it.attrs, it.span()), it.span().end().line))
+            }
+            syn::Item::Fn(it) => {
+                let sig = slice(it.sig.span().start().line, it.sig.span().end().line);
+                out.push(format!("{} {{ ... }}", trim_sig(&sig)));
+            }
+            syn::Item::Impl(it) => {
+                out.push(slice(it.span().start().line, it.span().start().line));
+                for sub in &it.items {
+                    if let syn::ImplItem::Fn(m) = sub {
+                        let sig = slice(m.sig.span().start().line, m.sig.span().end().line);
+                        out.push(format!("    {} {{ ... }}", trim_sig(&sig)));
+                    }
+                }
+                out.push("}".to_string());
+            }
+            syn::Item::Trait(it) => {
+                out.push(slice(it.span().start().line, it.span().start().line));
+                for sub in &it.items {
+                    if let syn::TraitItem::Fn(m) = sub {
+                        let sig = slice(m.sig.span().start().line, m.sig.span().end().line);
+                        out.push(format!("    {} {{ ... }}", trim_sig(&sig)));
+                    }
+                }
+                out.push("}".to_string());
+            }
+            _ => {}
+        }
+        if out.len() > 400 {
+            out.push("// ... (truncated)".to_string());
+            break;
+        }
+    }
+
+    if out.is_empty() {
+        None
+    } else {
+        Some(out.join("\n"))
+    }
+}
+
+/// Normalize a signature slice: drop a trailing `{` (body brace shares the sig's last
+/// line) or `;` (bodyless trait method) so we can append a uniform ` { ... }`.
+fn trim_sig(sig: &str) -> String {
+    sig.trim()
+        .trim_end_matches('{')
+        .trim_end_matches(';')
+        .trim_end()
+        .to_string()
 }
 
 fn render_file_skeleton(content: &str) -> String {
@@ -2169,7 +2268,10 @@ impl AppConfig {
         let skeleton =
             file_skeletons(&working_memory, &tmp).expect("expected a skeleton block");
         assert!(skeleton.contains("File: src/sample.rs"));
-        assert!(skeleton.contains("pub enum LlmProvider { Ollama, OpenRouter }"));
+        // The parser-backed skeleton emits exact source slices.
+        assert!(skeleton.contains("pub enum LlmProvider {"));
+        assert!(skeleton.contains("Ollama,"));
+        assert!(skeleton.contains("OpenRouter,"));
         assert!(skeleton.contains("pub struct AppConfig {"));
         assert!(skeleton.contains("pub llm_provider: LlmProvider"));
         assert!(skeleton.contains("pub openrouter_api_key: Option<String>"));
@@ -2178,6 +2280,28 @@ impl AppConfig {
         assert!(skeleton.contains("pub async fn validate(&self) -> Result<(), String>"));
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn syn_skeleton_includes_private_items_with_exact_signatures() {
+        // The Strand anchor-fidelity case: a PRIVATE struct with a derive attribute. The
+        // old line-scan skeleton omitted it entirely (pub-only); the model then guessed
+        // `pub struct` and the anchor failed.
+        let src = "#[derive(Deserialize)]\nstruct OpenRouterChatResponse {\n    choices: Vec<OpenRouterChoice>,\n}\n\npub fn run(x: u32) -> bool {\n    x > 0\n}\n";
+        let skel = render_file_skeleton_syn(src).expect("should parse");
+
+        assert!(skel.contains("#[derive(Deserialize)]"));
+        assert!(skel.contains("struct OpenRouterChatResponse {"));
+        assert!(skel.contains("    choices: Vec<OpenRouterChoice>,"));
+        // Private struct must NOT be rewritten as `pub` — that was the mismatch.
+        assert!(!skel.contains("pub struct OpenRouterChatResponse"));
+        assert!(skel.contains("pub fn run(x: u32) -> bool { ... }"));
+    }
+
+    #[test]
+    fn syn_skeleton_returns_none_on_parse_error() {
+        // Mid-edit / unparseable file → None so file_skeletons falls back to line-scan.
+        assert!(render_file_skeleton_syn("fn broken( { struct").is_none());
     }
 
     #[test]
@@ -2265,3 +2389,4 @@ async fn generate_openrouter(&self, model: &str, prompt: &str) -> Result<String>
         ));
     }
 }
+

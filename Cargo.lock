@@ -2509,6 +2509,7 @@ dependencies = [
  "clap 4.5.60",
  "dotenvy",
  "prettyprint",
+ "proc-macro2",
  "qdrant-client",
  "regex",
  "reqwest 0.12.16",
@@ -2516,6 +2517,7 @@ dependencies = [
  "scraper",
  "serde",
  "serde_json",
+ "syn 2.0.101",
  "tokio",
  "urlencoding",
 ]

@@ -13,6 +13,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 prettyprint = "0.8.1"
 regex = "1.11.1"
+syn = { version = "2", features = ["full"] }
+proc-macro2 = { version = "1", features = ["span-locations"] }
 rustyline = "14.0"
 tokio = { version = "1", features = ["full"] }
 scraper = "0.23"
