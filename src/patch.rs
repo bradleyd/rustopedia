@@ -445,6 +445,35 @@ fn resolve_path(project_root: &Path, relative: &str) -> PathBuf {
     project_root.join(relative)
 }
 
+/// Re-render verified patches back into canonical ```patch blocks. Used to show a model
+/// its own prior submission when asking for a minimal surgical correction — which also
+/// normalizes any lenient/git-conflict dialect it used back into the canonical envelope.
+pub fn render_canonical_patches(verified: &VerifiedPatches) -> String {
+    let mut blocks = Vec::new();
+    for patch in &verified.patches {
+        match patch {
+            VerifiedPatch::Modify { path, edits } => {
+                let mut out = format!("```patch path={path}\n");
+                for (n, edit) in edits.iter().enumerate() {
+                    if n > 0 {
+                        out.push('\n');
+                    }
+                    out.push_str(&format!(
+                        "<<<SEARCH\n{}\nSEARCH>>>\n<<<REPLACE\n{}\nREPLACE>>>\n",
+                        edit.edit.search, edit.edit.replace
+                    ));
+                }
+                out.push_str("```");
+                blocks.push(out);
+            }
+            VerifiedPatch::Create { path, content, .. } => {
+                blocks.push(format!("```patch path={path} new=true\n{content}\n```"));
+            }
+        }
+    }
+    blocks.join("\n\n")
+}
+
 pub fn render_preview(verified: &VerifiedPatches) -> Option<String> {
     if verified.is_empty() {
         return None;
@@ -994,6 +1023,25 @@ y
         assert!(rendered.contains("create src/new.rs"));
         assert!(rendered.contains("Summary: 2 edit(s) would apply cleanly, 1 blocked"));
         assert!(rendered.contains("Patch Parse Errors"));
+    }
+
+    #[test]
+    fn render_canonical_patches_round_trips_into_canonical_envelope() {
+        let root = TempRoot::new();
+        root.write("src/foo.rs", "let a = 1;\n");
+
+        // Parse a patch written in the lenient git-conflict dialect...
+        let parsed = parse(
+            "```patch path=src/foo.rs\n<<<SEARCH\nlet a = 1;\n<<<REPLACE\nlet a = 2;\n<<<\n```",
+        );
+        let verified = verify(&parsed, &root.path);
+
+        // ...and confirm it re-renders into the canonical envelope.
+        let rendered = render_canonical_patches(&verified);
+        assert_eq!(
+            rendered,
+            "```patch path=src/foo.rs\n<<<SEARCH\nlet a = 1;\nSEARCH>>>\n<<<REPLACE\nlet a = 2;\nREPLACE>>>\n```"
+        );
     }
 
     #[test]

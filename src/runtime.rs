@@ -145,9 +145,11 @@ impl Runtime {
             return Ok(None);
         }
 
+        let prior_patch = crate::patch::render_canonical_patches(verified);
         let evidence = crate::retry_loop::gather_validation_evidence(
             &outcome.output_excerpt,
             &overlay_root,
+            &prior_patch,
         )
         .await;
         drop(overlay);

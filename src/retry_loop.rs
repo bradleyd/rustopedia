@@ -53,6 +53,9 @@ pub enum RetryDiagnosis {
     CargoCheckFailed {
         output_excerpt: String,
         failing_spans: Vec<FailingSpan>,
+        /// The model's own prior patch, re-rendered canonically, so the retry can ask
+        /// for a minimal surgical fix instead of a full regenerate (which drifts).
+        prior_patch: String,
     },
     /// The model's response could not be parsed as any usable patch
     /// (either no ````patch` blocks at all, or blocks were
@@ -209,6 +212,7 @@ fn bound_excerpt(text: &str, max_chars: usize) -> String {
 pub async fn gather_validation_evidence(
     output_excerpt: &str,
     overlay_root: &Path,
+    prior_patch: &str,
 ) -> RetryEvidence {
     let failing_spans = parse_short_diagnostics(output_excerpt, overlay_root).await;
     RetryEvidence {
@@ -221,6 +225,7 @@ pub async fn gather_validation_evidence(
             diagnosis: RetryDiagnosis::CargoCheckFailed {
                 output_excerpt: output_excerpt.to_string(),
                 failing_spans,
+                prior_patch: prior_patch.to_string(),
             },
         }],
     }
@@ -410,10 +415,26 @@ pub fn build_retry_directive(original_query: &str, evidence: &RetryEvidence) -> 
         return String::new();
     }
 
-    let mut sections = vec![format!(
-        "Previous attempt's patches did not match the real file. Failures and the real file content are listed below.\n\nTask remains: {}\n\nEmit the corrected SEARCH/REPLACE patch blocks immediately. Keep prose to 1-2 sentences maximum. Anchor each SEARCH on text that literally appears in the file slices shown. The evidence is here — do not refuse on \"insufficient evidence\" grounds.",
-        original_query.trim()
-    )];
+    // The cargo_check case is distinct: the patches DID match and apply — they just
+    // don't compile — so the "did not match the real file" framing would mislead.
+    let all_cargo_check = evidence
+        .hits
+        .iter()
+        .all(|h| matches!(h.diagnosis, RetryDiagnosis::CargoCheckFailed { .. }));
+
+    let header = if all_cargo_check {
+        format!(
+            "Your previous patch applied cleanly but the result does not compile. Fix ONLY the compiler error(s) below, with the smallest possible change.\n\nTask remains: {}\n\nDo not refuse on \"insufficient evidence\" grounds — the evidence is here.",
+            original_query.trim()
+        )
+    } else {
+        format!(
+            "Previous attempt's patches did not match the real file. Failures and the real file content are listed below.\n\nTask remains: {}\n\nEmit the corrected SEARCH/REPLACE patch blocks immediately. Keep prose to 1-2 sentences maximum. Anchor each SEARCH on text that literally appears in the file slices shown. The evidence is here — do not refuse on \"insufficient evidence\" grounds.",
+            original_query.trim()
+        )
+    };
+
+    let mut sections = vec![header];
 
     for (n, hit) in evidence.hits.iter().enumerate() {
         sections.push(render_hit(n + 1, hit));
@@ -573,11 +594,18 @@ REPLACE>>>
         RetryDiagnosis::CargoCheckFailed {
             output_excerpt,
             failing_spans,
+            prior_patch,
         } => {
-            let mut sections = vec![format!(
-                "Your patches applied cleanly to the file(s), but the resulting code does not compile. The compiler output (truncated) is:\n```\n{}\n```",
+            let mut sections = Vec::new();
+            if !prior_patch.trim().is_empty() {
+                sections.push(format!(
+                    "This is the patch you submitted. It applied cleanly, so DO NOT rewrite it — start from it and change only what the compiler error requires:\n{prior_patch}"
+                ));
+            }
+            sections.push(format!(
+                "The resulting code does not compile. The compiler output (truncated) is:\n```\n{}\n```",
                 output_excerpt.trim_end()
-            )];
+            ));
             for (n, span) in failing_spans.iter().enumerate() {
                 let slice = match &span.file_slice {
                     Some(s) => format!(
@@ -597,7 +625,7 @@ REPLACE>>>
                 ));
             }
             sections.push(
-                "Re-emit the corrected SEARCH/REPLACE block(s). The previous edits made it into the file, so anchor against the POST-PATCH content shown above, not the pre-patch original. Only invent symbols, fields, or methods that actually exist in the project — check the post-patch slices and the file evidence already in working memory first.".to_string(),
+                "Re-emit a corrected patch that makes the SMALLEST change fixing only the error(s) above; keep every other line of your prior patch identical. Anchor SEARCH against the POST-PATCH content shown above, not the pre-patch original. Do NOT add or re-declare any struct, enum, fn, or item that already exists in the file — a REPLACE block that re-emits a neighbouring definition creates a duplicate. Only reference symbols and fields that actually exist; check the post-patch slices and file evidence first.".to_string(),
             );
             sections.join("\n\n")
         }
@@ -738,6 +766,34 @@ mod tests {
         assert!(directive.contains("lines 62-122"));
         assert!(directive.contains("real file slice goes here"));
         assert!(directive.contains("LAST existing line"));
+    }
+
+    #[test]
+    fn build_retry_directive_for_cargo_check_shows_prior_patch_and_surgical_framing() {
+        let evidence = RetryEvidence {
+            hits: vec![AnchorRetryHit {
+                path: String::new(),
+                edit_index: 0,
+                edit_total: 1,
+                failed_search: String::new(),
+                status: AnchorStatus::NotFound,
+                diagnosis: RetryDiagnosis::CargoCheckFailed {
+                    output_excerpt: "src/llm.rs:190:8: error[E0428]: the name `OpenRouterChoice` is defined multiple times".to_string(),
+                    failing_spans: Vec::new(),
+                    prior_patch: "```patch path=src/llm.rs\n<<<SEARCH\nfoo\nSEARCH>>>\n<<<REPLACE\nbar\nREPLACE>>>\n```".to_string(),
+                },
+            }],
+        };
+
+        let directive = build_retry_directive("add serde default", &evidence);
+        // cargo_check-specific header, NOT the anchor "did not match" framing.
+        assert!(directive.contains("applied cleanly but the result does not compile"));
+        assert!(!directive.contains("did not match the real file"));
+        // The model's own prior patch is shown back to it for a surgical fix.
+        assert!(directive.contains("DO NOT rewrite it"));
+        assert!(directive.contains("<<<SEARCH\nfoo"));
+        // And the explicit anti-duplicate-definition guard.
+        assert!(directive.contains("re-declare any struct, enum, fn"));
     }
 
     #[test]

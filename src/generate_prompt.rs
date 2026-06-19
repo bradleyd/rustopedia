@@ -132,6 +132,7 @@ Rules:
 - Do not include line numbers anywhere.
 - Do not emit a unified diff: no @@ hunks, no leading +/- lines.
 - Do not rewrite an existing file in full. Use SEARCH/REPLACE pairs for edits; reserve new=true for files that do not exist yet.
+- The REPLACE block must contain only the SEARCH lines (modified as needed) plus new content that belongs at that exact spot. Never re-declare a struct, enum, fn, trait, or any item that already exists elsewhere in the file — re-emitting a neighbouring definition creates a duplicate and the code will not compile. To change one field or attribute, keep the SEARCH/REPLACE tight around that field, not the whole surrounding item and its neighbours.
 - Multiple SEARCH/REPLACE pairs may appear inside one patch block for the same file.
 - Prose, explanations, and Current code:/Observed issue:/Minimal change:/Verification: sections may appear around the patch blocks, but the patch blocks themselves must use the exact format above.
 - If you do not have enough evidence to produce a correct SEARCH block, say so explicitly and emit no patch rather than guessing at file contents.
