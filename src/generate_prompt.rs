@@ -17,7 +17,12 @@ pub fn build_prompt_with_retry(
         SessionMode::Ask => ask_instruction(intent).to_string(),
         SessionMode::Review => review_instruction(intent).to_string(),
         SessionMode::Edit => {
-            format!("{}\n\n{}", edit_instruction(intent), PATCH_OUTPUT_REQUIREMENT)
+            format!(
+                "{}\n\n{}\n\n{}",
+                edit_instruction(intent),
+                SYMBOLIC_OUTPUT_REQUIREMENT,
+                PATCH_OUTPUT_REQUIREMENT
+            )
         }
     };
 
@@ -106,7 +111,48 @@ fn review_instruction(intent: RustIntent) -> &'static str {
     }
 }
 
-const PATCH_OUTPUT_REQUIREMENT: &str = "PATCH OUTPUT REQUIREMENT:
+const SYMBOLIC_OUTPUT_REQUIREMENT: &str = "PREFERRED EDIT FORMAT — SYMBOLIC EDITS:
+Prefer this format. You NAME the item to change and give its new text; you do NOT copy the old code as an anchor. Emit a ```patch block with `edit=symbolic`:
+
+```patch path=<relative/path> edit=symbolic
+@replace struct Foo
+<the full new text of struct Foo, including its attributes>
+@@@
+```
+
+Operations (one per change):
+- `@replace <selector>` — replace the whole named item with the body text.
+- `@after <selector>` / `@before <selector>` — insert the body (a new item) after/before the named item.
+
+Selectors: `struct N` | `enum N` | `union N` | `type N` | `trait N` | `fn n` | `impl Type` | `impl Trait for Type`.
+Each operation's body ends with a line that is exactly `@@@`.
+
+Rules:
+- Name the item exactly as it appears (case-sensitive). Do NOT write `pub` if the item is not `pub`.
+- For `@replace`, give the COMPLETE new item (all fields/variants/attributes), not a fragment.
+- For `@after`/`@before`, give only the NEW item; never restate the named item or any neighbour.
+- One change = one operation. Do not copy unrelated code.
+
+Worked example — add a custom Deserialize impl after a struct (the model never copies the struct's bytes):
+```patch path=src/llm.rs edit=symbolic
+@after struct OpenRouterChatResponse
+impl<'de> Deserialize<'de> for OpenRouterChatResponse {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Helper { #[serde(default)] choices: Vec<OpenRouterChoice> }
+        let h = Helper::deserialize(deserializer)?;
+        Ok(OpenRouterChatResponse { choices: h.choices })
+    }
+}
+@@@
+```
+
+If the file cannot be parsed (a retry tells you so), fall back to the SEARCH/REPLACE format below.";
+
+const PATCH_OUTPUT_REQUIREMENT: &str = "FALLBACK EDIT FORMAT — SEARCH/REPLACE:
 When proposing any code change, you must emit it as one or more ```patch fenced blocks placed after your prose explanation. Use this exact format to modify an existing file:
 
 ```patch path=<relative/path/from/project/root>
@@ -167,41 +213,7 @@ SEARCH>>>
 REPLACE>>>
 ```
 
-Worked example — adding a field to a `Self { ... }` initializer:
-
-WRONG:
-```patch path=src/config.rs
-<<<SEARCH
-impl AppConfig {
-    pub fn from_env() -> Self {
-        // existing implementation
-    }
-}
-SEARCH>>>
-<<<REPLACE
-impl AppConfig {
-    pub fn from_env() -> Self {
-        // existing implementation
-        new_field: String::new(),
-    }
-}
-REPLACE>>>
-```
-
-RIGHT (anchor on the last existing initializer line and the closing brace of the struct literal):
-```patch path=src/config.rs
-<<<SEARCH
-            debug: env::var(\"RUSTOPEDIA_DEBUG\").is_ok(),
-        }
-SEARCH>>>
-<<<REPLACE
-            debug: env::var(\"RUSTOPEDIA_DEBUG\").is_ok(),
-            new_field: String::new(),
-        }
-REPLACE>>>
-```
-
-Both worked examples show the same pattern: the SEARCH block contains only the last few lines of real existing code that uniquely identify the change point, and the REPLACE block mirrors those lines plus the new content. Use this pattern for every edit. Never use a comment to stand in for code that already exists.";
+The SEARCH block contains only the last few lines of real existing code that uniquely identify the change point, and the REPLACE block mirrors those lines plus the new content. Use this pattern for every edit. Never use a comment to stand in for code that already exists.";
 
 fn edit_instruction(intent: RustIntent) -> &'static str {
     match intent {

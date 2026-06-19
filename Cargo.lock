@@ -2511,6 +2511,7 @@ dependencies = [
  "prettyprint",
  "proc-macro2",
  "qdrant-client",
+ "quote",
  "regex",
  "reqwest 0.12.16",
  "rustyline",

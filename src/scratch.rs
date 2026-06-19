@@ -128,6 +128,46 @@ impl ScratchOverlay {
                     fs::write(&full_path, content)
                         .with_context(|| format!("failed to create overlay file {path}"))?;
                 }
+                VerifiedPatch::Symbolic { path, edits } => {
+                    let full_path = self.overlay_root.join(path);
+                    let mut content = fs::read_to_string(&full_path)
+                        .with_context(|| format!("failed to read overlay file {path}"))?;
+
+                    // Apply in descending start-line order so earlier splices don't
+                    // invalidate the byte offsets of later (earlier-in-file) edits.
+                    let mut applicable: Vec<&crate::patch::VerifiedSymbolicEdit> = edits
+                        .iter()
+                        .filter(|e| e.status.is_applicable() && e.span.is_some())
+                        .collect();
+                    applicable.sort_by_key(|e| std::cmp::Reverse(e.span.unwrap().0));
+
+                    for edit in applicable {
+                        let (start_line, end_line) = edit.span.unwrap();
+                        let (start_byte, end_byte) =
+                            line_range_to_byte_range(&content, start_line, end_line);
+                        let body = edit.edit.body.trim_end_matches('\n');
+                        match edit.edit.op {
+                            crate::patch::SymbolicOp::Replace => {
+                                content.replace_range(start_byte..end_byte, body);
+                            }
+                            crate::patch::SymbolicOp::InsertAfter => {
+                                if content.contains(body.trim()) {
+                                    continue; // idempotent: already inserted
+                                }
+                                content.insert_str(end_byte, &format!("\n\n{body}"));
+                            }
+                            crate::patch::SymbolicOp::InsertBefore => {
+                                if content.contains(body.trim()) {
+                                    continue;
+                                }
+                                content.insert_str(start_byte, &format!("{body}\n\n"));
+                            }
+                        }
+                    }
+
+                    fs::write(&full_path, content)
+                        .with_context(|| format!("failed to write overlay file {path}"))?;
+                }
             }
         }
         Ok(())
@@ -246,6 +286,28 @@ impl Drop for ScratchOverlay {
     }
 }
 
+/// Map a 1-based inclusive line range to a byte range `[start, end)` where `start` is the
+/// first byte of `start_line` and `end` is the byte index of the newline terminating
+/// `end_line` (or EOF if it has no trailing newline). Replacing this range swaps the
+/// item's lines while leaving the terminating newline intact.
+fn line_range_to_byte_range(content: &str, start_line: usize, end_line: usize) -> (usize, usize) {
+    let mut start_byte = if start_line <= 1 { 0 } else { content.len() };
+    let mut end_byte = content.len();
+    let mut current = 1usize;
+    for (i, ch) in content.char_indices() {
+        if ch == '\n' {
+            if current == end_line {
+                end_byte = i;
+            }
+            current += 1;
+            if current == start_line {
+                start_byte = i + 1;
+            }
+        }
+    }
+    (start_byte, end_byte)
+}
+
 fn unique_overlay_dir() -> PathBuf {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -262,7 +324,8 @@ fn unique_overlay_dir() -> PathBuf {
 mod tests {
     use super::*;
     use crate::patch::{
-        ParsedPatches, Patch, SearchReplaceEdit, VerifiedPatches, verify as verify_patches,
+        ItemSelector, ParsedPatches, Patch, SearchReplaceEdit, SymbolicEdit, SymbolicOp,
+        VerifiedPatches, verify as verify_patches,
     };
     use std::process::Command as SyncCommand;
 
@@ -362,6 +425,74 @@ mod tests {
             "real tree must be untouched, got {real_a:?}"
         );
 
+        drop(overlay);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    fn symbolic_overlay(root: &Path, file: &str, contents: &str) -> ScratchOverlay {
+        init_git_repo(root);
+        let full = root.join(file);
+        if let Some(parent) = full.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(&full, contents).unwrap();
+        commit_all(root, "init");
+        ScratchOverlay::create(root).expect("overlay create")
+    }
+
+    #[test]
+    fn symbolic_replace_swaps_item_span() {
+        let root = tmpdir("sym_replace");
+        let overlay = symbolic_overlay(
+            &root,
+            "src/llm.rs",
+            "struct Foo {\n    x: i32,\n}\n\nfn other() {}\n",
+        );
+        let parsed = ParsedPatches {
+            patches: vec![Patch::Symbolic {
+                path: "src/llm.rs".into(),
+                edits: vec![SymbolicEdit {
+                    op: SymbolicOp::Replace,
+                    selector: ItemSelector::Struct("Foo".into()),
+                    body: "struct Foo {\n    x: i64,\n}".into(),
+                }],
+            }],
+            errors: vec![],
+        };
+        let verified = verify_patches(&parsed, overlay.root());
+        overlay.apply(&verified).expect("apply");
+        let out = fs::read_to_string(overlay.root().join("src/llm.rs")).unwrap();
+        assert!(out.contains("x: i64,"), "got: {out:?}");
+        assert!(!out.contains("x: i32,"));
+        assert!(out.contains("fn other() {}"), "neighbour untouched: {out:?}");
+        drop(overlay);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn symbolic_after_inserts_and_is_idempotent() {
+        let root = tmpdir("sym_after");
+        let overlay = symbolic_overlay(&root, "src/llm.rs", "struct Foo {\n    x: i32,\n}\n");
+        let parsed = ParsedPatches {
+            patches: vec![Patch::Symbolic {
+                path: "src/llm.rs".into(),
+                edits: vec![SymbolicEdit {
+                    op: SymbolicOp::InsertAfter,
+                    selector: ItemSelector::Struct("Foo".into()),
+                    body: "impl Foo { fn n() {} }".into(),
+                }],
+            }],
+            errors: vec![],
+        };
+        let verified = verify_patches(&parsed, overlay.root());
+        overlay.apply(&verified).expect("apply");
+        overlay.apply(&verified).expect("apply again"); // idempotent
+        let out = fs::read_to_string(overlay.root().join("src/llm.rs")).unwrap();
+        assert_eq!(out.matches("impl Foo { fn n() {} }").count(), 1, "got: {out:?}");
+        // inserted after the struct's closing brace
+        let struct_end = out.find('}').unwrap();
+        let impl_pos = out.find("impl Foo").unwrap();
+        assert!(impl_pos > struct_end);
         drop(overlay);
         let _ = fs::remove_dir_all(&root);
     }

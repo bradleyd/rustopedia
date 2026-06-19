@@ -2017,6 +2017,15 @@ fn count_anchor_status(verified: &crate::patch::VerifiedPatches) -> (usize, usiz
                     ok += 1;
                 }
             }
+            crate::patch::VerifiedPatch::Symbolic { edits, .. } => {
+                for edit in edits {
+                    if edit.status.is_applicable() {
+                        ok += 1;
+                    } else {
+                        blocked += 1;
+                    }
+                }
+            }
         }
     }
     (ok, blocked)

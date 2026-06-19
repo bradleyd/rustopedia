@@ -65,6 +65,23 @@ pub enum RetryDiagnosis {
         parse_error_messages: Vec<String>,
         raw_output_excerpt: String,
     },
+    /// A symbolic-edit selector did not resolve to any item in the file. Lists the file's
+    /// actual top-level item names so the model can re-target.
+    SymbolicNotFound {
+        selector: String,
+        available_items: Vec<String>,
+    },
+    /// A symbolic-edit selector matched multiple items (e.g. `fn name` across impls).
+    SymbolicAmbiguous {
+        selector: String,
+        match_count: usize,
+        available_items: Vec<String>,
+    },
+    /// The target file could not be parsed by `syn` (newer syntax / mid-edit). The model
+    /// is told to fall back to a SEARCH/REPLACE patch.
+    SymbolicParseFailed {
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -99,6 +116,14 @@ pub fn has_retryable_failures(verified: &VerifiedPatches) -> bool {
             file_already_exists,
             ..
         } => *file_already_exists,
+        VerifiedPatch::Symbolic { edits, .. } => edits.iter().any(|edit| {
+            matches!(
+                edit.status,
+                AnchorStatus::NotFound
+                    | AnchorStatus::Ambiguous(_)
+                    | AnchorStatus::FileReadError(_)
+            )
+        }),
     })
 }
 
@@ -151,10 +176,67 @@ pub async fn gather_retry_evidence(
                     diagnosis,
                 });
             }
+            VerifiedPatch::Symbolic { path, edits } => {
+                let total = edits.len();
+                for (idx, edit) in edits.iter().enumerate() {
+                    if edit.status.is_applicable() {
+                        continue;
+                    }
+                    let selector = crate::patch::render_selector(&edit.edit.selector);
+                    let diagnosis = diagnose_symbolic(path, &selector, &edit.status, config).await;
+                    hits.push(AnchorRetryHit {
+                        path: path.clone(),
+                        edit_index: idx,
+                        edit_total: total,
+                        failed_search: format!("@{} {selector}", op_word(edit.edit.op)),
+                        status: edit.status.clone(),
+                        diagnosis,
+                    });
+                }
+            }
         }
     }
 
     Ok(RetryEvidence { hits })
+}
+
+fn op_word(op: crate::patch::SymbolicOp) -> &'static str {
+    match op {
+        crate::patch::SymbolicOp::Replace => "replace",
+        crate::patch::SymbolicOp::InsertAfter => "after",
+        crate::patch::SymbolicOp::InsertBefore => "before",
+    }
+}
+
+/// Diagnose a failed symbolic resolution by listing the file's actual item names (so the
+/// model can re-target), or flagging a parse failure for SEARCH/REPLACE fallback.
+async fn diagnose_symbolic(
+    relative_path: &str,
+    selector: &str,
+    status: &AnchorStatus,
+    config: &AppConfig,
+) -> RetryDiagnosis {
+    if let AnchorStatus::FileReadError(message) = status {
+        return RetryDiagnosis::SymbolicParseFailed {
+            message: message.clone(),
+        };
+    }
+    let full = Path::new(&config.project_root).join(relative_path);
+    let available_items = match fs::read_to_string(&full).await {
+        Ok(content) => crate::patch::list_item_selectors(&content),
+        Err(_) => Vec::new(),
+    };
+    match status {
+        AnchorStatus::Ambiguous(n) => RetryDiagnosis::SymbolicAmbiguous {
+            selector: selector.to_string(),
+            match_count: *n,
+            available_items,
+        },
+        _ => RetryDiagnosis::SymbolicNotFound {
+            selector: selector.to_string(),
+            available_items,
+        },
+    }
 }
 
 /// Build retry evidence describing a patch-format failure: either no
@@ -447,6 +529,18 @@ pub fn build_retry_directive(original_query: &str, evidence: &RetryEvidence) -> 
     sections.join("\n\n")
 }
 
+fn render_available_items(items: &[String]) -> String {
+    if items.is_empty() {
+        return "  (could not list the file's items)".to_string();
+    }
+    items
+        .iter()
+        .take(40)
+        .map(|i| format!("  - {i}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn render_hit(index: usize, hit: &AnchorRetryHit) -> String {
     let is_create_on_existing = matches!(
         hit.diagnosis,
@@ -628,6 +722,30 @@ REPLACE>>>
                 "Re-emit a corrected patch that makes the SMALLEST change fixing only the error(s) above; keep every other line of your prior patch identical. Anchor SEARCH against the POST-PATCH content shown above, not the pre-patch original. Do NOT add or re-declare any struct, enum, fn, or item that already exists in the file — a REPLACE block that re-emits a neighbouring definition creates a duplicate. Only reference symbols and fields that actually exist; check the post-patch slices and file evidence first.".to_string(),
             );
             sections.join("\n\n")
+        }
+        RetryDiagnosis::SymbolicNotFound {
+            selector,
+            available_items,
+        } => {
+            let items = render_available_items(available_items);
+            format!(
+                "Your symbolic selector `{selector}` did not match any item in the file. The file defines these items you can name:\n{items}\nRe-emit a symbolic edit whose selector exactly matches one of them (e.g. `@replace struct Name`)."
+            )
+        }
+        RetryDiagnosis::SymbolicAmbiguous {
+            selector,
+            match_count,
+            available_items,
+        } => {
+            let items = render_available_items(available_items);
+            format!(
+                "Your symbolic selector `{selector}` matched {match_count} items, so it is ambiguous. Disambiguate — e.g. use the full `impl Trait for Type` form instead of `fn name`. Items in the file:\n{items}"
+            )
+        }
+        RetryDiagnosis::SymbolicParseFailed { message } => {
+            format!(
+                "The target file could not be parsed to resolve your symbolic edit ({message}). Fall back to a SEARCH/REPLACE patch block (```patch path=… with <<<SEARCH … SEARCH>>> <<<REPLACE … REPLACE>>>) instead of edit=symbolic for this file."
+            )
         }
     };
 
